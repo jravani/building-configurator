@@ -70,7 +70,7 @@ export function InfoTip({ tip }: { tip: string }) {
         <TooltipPrimitive.Portal>
           <TooltipPrimitive.Content
             sideOffset={4}
-            className="z-[9999] bg-foreground text-background text-[11px] leading-snug rounded-md px-2.5 py-1.5 max-w-[200px] shadow-md animate-in fade-in-0 zoom-in-95"
+            className="z-[9999] bg-foreground text-background text-[11px] leading-snug rounded-[6px] px-2.5 py-1.5 max-w-[200px] shadow-md animate-in fade-in-0 zoom-in-95"
           >
             {tip}
             <TooltipPrimitive.Arrow className="fill-foreground" />
@@ -181,7 +181,7 @@ interface SegmentedControlProps {
 export function SegmentedControl({ options, value, onChange, fullWidth }: SegmentedControlProps) {
   return (
     <div className={cn(
-      'inline-flex bg-muted rounded-md p-0.5 gap-0.5',
+      'inline-flex bg-muted rounded-[6px] p-0.5 gap-0.5',
       fullWidth && 'flex w-full',
     )}>
       {options.map((opt) => {
@@ -192,7 +192,7 @@ export function SegmentedControl({ options, value, onChange, fullWidth }: Segmen
             type="button"
             onClick={() => onChange(opt.value)}
             className={cn(
-              'px-3 py-[5px] rounded text-xs select-none cursor-pointer transition-all duration-150 whitespace-nowrap',
+              'px-3 py-[5px] rounded-[5px] text-xs select-none cursor-pointer transition-all duration-150 whitespace-nowrap',
               fullWidth && 'flex-1',
               active
                 ? 'bg-card text-foreground font-semibold shadow-sm'
@@ -293,7 +293,7 @@ interface ConfigSectionProps {
 
 export function ConfigSection({ title, expanded, onToggle, children }: ConfigSectionProps) {
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_12px_28px_rgba(15,23,42,0.05)]">
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_12px_28px_rgba(15,23,42,0.05)]">
       <button
         type="button"
         onClick={onToggle}

@@ -93,7 +93,7 @@ export function GeneralConfig({ mode, general, setGen, expanded, toggle }: Gener
             { key: 'spaceHeatingDemand', label: 'Space heating', icon: <Flame   className="size-3.5 text-orange-500 shrink-0" />, tip: undefined },
             { key: 'dhwDemand',          label: 'DHW',           icon: <Droplets className="size-3.5 text-blue-500 shrink-0" />,  tip: 'Annual domestic hot water energy demand.' },
           ] as const).map(({ key, label, icon, tip }) => (
-            <div key={key} className="rounded-xl border border-slate-200/90 bg-slate-50/60 p-2.5">
+            <div key={key} className="rounded-lg border border-slate-200/90 bg-slate-50/60 p-2.5">
               <div className="mb-2 flex items-center gap-1.5">
                 {icon}
                 <span className="text-[11px] font-medium text-muted-foreground truncate">{label}</span>
@@ -297,7 +297,7 @@ export function GeneralConfig({ mode, general, setGen, expanded, toggle }: Gener
                 tip="Mixed-integer linear programming for optimal dispatch scheduling. Slower but globally optimal."
               />
               <div
-                className="rounded-md px-3 py-2 transition-all duration-200"
+                className="rounded-[6px] px-3 py-2 transition-all duration-200"
                 style={{
                   backgroundColor: general.use_milp ? 'rgba(47,93,138,0.05)' : undefined,
                   border: `1px solid ${general.use_milp ? 'rgba(47,93,138,0.25)' : 'var(--color-border)'}`,

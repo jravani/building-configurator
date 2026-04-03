@@ -155,7 +155,7 @@ export function ElementPanel({
   const isWindow = el.type === 'window';
 
   return (
-    <div className="mb-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_18px_36px_rgba(15,23,42,0.08)]">
+    <div className="mb-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_18px_36px_rgba(15,23,42,0.08)]">
       {/* Header */}
       <div className="flex items-center gap-2 border-b border-border/80 bg-slate-50 px-4 py-3">
         <TypeBadge type={el.type} />
@@ -191,7 +191,7 @@ export function ElementPanel({
         </div>
 
         {/* Thermal properties */}
-        <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.88),rgba(255,255,255,1))] p-3 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
+        <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.88),rgba(255,255,255,1))] p-3 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-[0.06em]">
             Thermal Properties
             <span
@@ -240,7 +240,7 @@ export function ElementPanel({
         </div>
 
         {/* Geometry */}
-        <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.88),rgba(255,255,255,1))] p-3 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
+        <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.88),rgba(255,255,255,1))] p-3 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-[0.06em]">
             Geometry
           </p>
@@ -283,7 +283,7 @@ export function ElementPanel({
 
         {/* Roof configurator */}
         {isRoof && (
-          <div className="overflow-hidden rounded-xl border border-slate-200 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
+          <div className="overflow-hidden rounded-lg border border-slate-200 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
             <div className="border-b border-border/80 bg-slate-50 px-3 py-2">
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-[0.06em]">
                 Roof Geometry &amp; PV Configuration

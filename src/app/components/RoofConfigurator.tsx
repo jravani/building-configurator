@@ -221,7 +221,7 @@ function SurfaceCard({ surface, index, canDelete, onChange, onDelete }: SurfaceC
   return (
     <div
       className={cn(
-        'border-[1.5px] rounded-lg overflow-hidden bg-card transition-colors duration-200',
+        'border-[1.5px] rounded-md overflow-hidden bg-card transition-colors duration-200',
         surface.useForPV ? 'border-primary/50' : 'border-border',
       )}
     >
@@ -273,7 +273,7 @@ function SurfaceCard({ surface, index, canDelete, onChange, onDelete }: SurfaceC
       <div className="p-3 flex flex-col gap-3">
 
         {/* Pitch */}
-        <div className="bg-input-background rounded-md p-2.5 border border-border">
+        <div className="bg-input-background rounded-[6px] p-2.5 border border-border">
           <div className="flex items-start gap-2">
             <TiltDiagram tilt={Math.round(surface.tilt)} />
             <div className="flex-1">
@@ -306,7 +306,7 @@ function SurfaceCard({ surface, index, canDelete, onChange, onDelete }: SurfaceC
         </div>
 
         {/* Azimuth */}
-        <div className="bg-input-background rounded-md p-2.5 border border-border">
+        <div className="bg-input-background rounded-[6px] p-2.5 border border-border">
           <div className="flex items-start gap-2">
             <MiniCompass azimuth={surface.azimuth} />
             <div className="flex-1">
@@ -368,7 +368,7 @@ function SurfaceCard({ surface, index, canDelete, onChange, onDelete }: SurfaceC
         {/* PV toggle */}
         <div
           className={cn(
-            'px-2.5 py-2 rounded-md flex items-center justify-between gap-2 border transition-all duration-200',
+            'px-2.5 py-2 rounded-[6px] flex items-center justify-between gap-2 border transition-all duration-200',
             surface.useForPV
               ? 'bg-green-50/70 border-green-300/50'
               : 'bg-input-background border-border',
@@ -465,7 +465,7 @@ export function RoofConfigurator({ config, onChange }: RoofConfiguratorProps) {
       {/* 3D data banner */}
       {has3D ? (
         config.from3DData ? (
-          <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-md px-2.5 py-1.5">
+          <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-[6px] px-2.5 py-1.5">
             <ShieldCheck className="size-3.5 text-blue-700 shrink-0" />
             <span className="text-[11px] text-blue-700 flex-1">
               <strong>{demo3D!.source}</strong> · {demo3D!.buildingRef} · Inferred from 3D city model
@@ -479,7 +479,7 @@ export function RoofConfigurator({ config, onChange }: RoofConfiguratorProps) {
             </button>
           </div>
         ) : (
-          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-1.5">
+          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-[6px] px-2.5 py-1.5">
             <span className="text-[11px] text-amber-800 flex-1">
               Manual mode — <strong>{demo3D!.source}</strong> data available for this roof type.
             </span>
@@ -494,7 +494,7 @@ export function RoofConfigurator({ config, onChange }: RoofConfiguratorProps) {
           </div>
         )
       ) : (
-        <div className="bg-input-background border border-border rounded-md px-2.5 py-1.5">
+        <div className="bg-input-background border border-border rounded-[6px] px-2.5 py-1.5">
           <p className="text-[11px] text-muted-foreground">
             No 3D city data found for this building — define roof geometry manually below.
           </p>
@@ -515,7 +515,7 @@ export function RoofConfigurator({ config, onChange }: RoofConfiguratorProps) {
                 type="button"
                 onClick={() => handleTypeChange(rt.id)}
                 className={cn(
-                  'cursor-pointer rounded-lg p-2 border-[1.5px] flex items-center gap-2 text-left transition-all duration-150',
+                  'cursor-pointer rounded-md p-2 border-[1.5px] flex items-center gap-2 text-left transition-all duration-150',
                   sel
                     ? 'border-primary bg-primary/5'
                     : 'border-border bg-card hover:border-primary hover:bg-primary/[0.03]',
@@ -546,7 +546,7 @@ export function RoofConfigurator({ config, onChange }: RoofConfiguratorProps) {
 
       {/* Warning banner */}
       {showWarning && (
-        <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-2">
+        <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-[6px] px-2.5 py-2">
           <AlertTriangle className="size-3.5 text-amber-800 shrink-0 mt-px" />
           <div className="flex-1">
             <p className="text-[11px] text-amber-800 font-semibold mb-0.5">
@@ -593,7 +593,7 @@ export function RoofConfigurator({ config, onChange }: RoofConfiguratorProps) {
 
       {/* Surface cards */}
       {config.surfaces.length === 0 ? (
-        <div className="border border-dashed border-border rounded-lg p-4 text-center">
+        <div className="border border-dashed border-border rounded-md p-4 text-center">
           <p className="text-[11px] text-muted-foreground">
             No surfaces — add one or select a roof type above.
           </p>
@@ -616,7 +616,7 @@ export function RoofConfigurator({ config, onChange }: RoofConfiguratorProps) {
       {/* PV summary */}
       <div
         className={cn(
-          'border-[1.5px] rounded-lg p-3',
+          'border-[1.5px] rounded-md p-3',
           pvArea > 0 ? 'border-green-400/40 bg-green-50/50' : 'border-border bg-input-background',
         )}
       >

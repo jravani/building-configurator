@@ -1,14 +1,15 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Box, Typography } from '@mui/material';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, Legend, ResponsiveContainer } from 'recharts';
-import { BoltOutlined, LocalFireDepartmentOutlined, WaterDropOutlined } from '@mui/icons-material';
-import { Download, Upload } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, Legend, ResponsiveContainer, Brush } from 'recharts';
+import { BoltOutlined } from '@mui/icons-material';
+import { Download, Upload, Zap, Flame, Droplets, Layers3 } from 'lucide-react';
 import { T, SegmentedControl } from './ui';
 
 // ─── Static Data Model ────────────────────────────────────────────────────────
 
 type EnergyType = 'electricity' | 'heating' | 'hotwater' | 'combined';
 type Resolution = 'hourly' | 'daily' | 'weekly' | 'monthly';
+type WindowMode = 'stepped' | 'free';
 
 interface LoadDataPoint {
   timestamp: string;
@@ -18,13 +19,47 @@ interface LoadDataPoint {
 }
 
 type DatasetByResolution = Record<Resolution, LoadDataPoint[]>;
+type DerivedDataState = {
+  rows: LoadDataPoint[];
+  sourceResolution: Resolution | null;
+  isDerived: boolean;
+};
+type BrushRange = {
+  startIndex: number;
+  endIndex: number;
+};
 
 const RESOLUTIONS: Resolution[] = ['hourly', 'daily', 'weekly', 'monthly'];
+const RESOLUTION_ORDER: Resolution[] = ['hourly', 'daily', 'weekly', 'monthly'];
+const DEFAULT_WINDOW_BY_RESOLUTION: Record<Resolution, number> = {
+  hourly: 24,
+  daily: 365,
+  weekly: 52,
+  monthly: 12,
+};
 const BASE_UTC_DATE = Date.UTC(2026, 0, 5, 0, 0, 0);
+const TIMESTAMP_HEADERS = ['datetime', 'timestamp', 'time', 'date', 'timesteps', 'zeit'];
+const ELECTRICITY_HEADERS = ['electricity', 'power', 'el'];
+const HEATING_HEADERS = ['heating', 'heat'];
+const HOTWATER_HEADERS = ['hotwater', 'hot_water', 'hot water', 'dhw'];
 
 function clampNumber(value: number) {
   if (Number.isNaN(value) || !Number.isFinite(value)) return 0;
-  return Math.max(0, Number(value.toFixed(2)));
+  return Number(value.toFixed(6));
+}
+
+function formatEnergyValue(value: number, maximumFractionDigits = 4) {
+  if (Number.isNaN(value) || !Number.isFinite(value)) return '0';
+
+  const absValue = Math.abs(value);
+
+  if (absValue === 0) return '0';
+  if (absValue >= 100) return value.toFixed(0);
+  if (absValue >= 10) return value.toFixed(1);
+  if (absValue >= 1) return value.toFixed(2);
+  if (absValue >= 0.1) return value.toFixed(Math.min(maximumFractionDigits, 3));
+  if (absValue >= 0.01) return value.toFixed(Math.min(maximumFractionDigits, 4));
+  return value.toFixed(Math.min(maximumFractionDigits, 6));
 }
 
 function toIsoString(date: Date) {
@@ -90,6 +125,166 @@ function formatTickLabel(timestamp: string, resolution: Resolution) {
   return date.toISOString().slice(0, 7);
 }
 
+function toUtcDateKey(timestamp: string) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return timestamp;
+  return date.toISOString().slice(0, 10);
+}
+
+function getDistinctDateKeys(data: LoadDataPoint[]) {
+  return Array.from(new Set(data.map((point) => toUtcDateKey(point.timestamp))));
+}
+
+function rangeEquals(left: BrushRange, right: BrushRange) {
+  return left.startIndex === right.startIndex && left.endIndex === right.endIndex;
+}
+
+function buildWindowRange(total: number, startIndex: number, windowSize: number): BrushRange {
+  if (total <= 0) {
+    return { startIndex: 0, endIndex: 0 };
+  }
+
+  const effectiveWindow = Math.max(1, Math.min(windowSize, total));
+  const safeStart = Math.max(0, Math.min(startIndex, total - effectiveWindow));
+
+  return {
+    startIndex: safeStart,
+    endIndex: safeStart + effectiveWindow - 1,
+  };
+}
+
+function clampBrushRange(total: number, startIndex: number, endIndex: number): BrushRange {
+  if (total <= 0) {
+    return { startIndex: 0, endIndex: 0 };
+  }
+
+  const safeStart = Math.max(0, Math.min(startIndex, total - 1));
+  const safeEnd = Math.max(safeStart, Math.min(endIndex, total - 1));
+
+  return { startIndex: safeStart, endIndex: safeEnd };
+}
+
+function findDateRange(data: LoadDataPoint[], dateKey: string): BrushRange | null {
+  const startIndex = data.findIndex((point) => toUtcDateKey(point.timestamp) === dateKey);
+
+  if (startIndex === -1) {
+    return null;
+  }
+
+  let endIndex = startIndex;
+
+  while (endIndex + 1 < data.length && toUtcDateKey(data[endIndex + 1].timestamp) === dateKey) {
+    endIndex += 1;
+  }
+
+  return { startIndex, endIndex };
+}
+
+function getVisibleRangeLabel(data: LoadDataPoint[], range: BrushRange, resolution: Resolution) {
+  if (data.length === 0) return '';
+
+  const safeRange = clampBrushRange(data.length, range.startIndex, range.endIndex);
+  const start = data[safeRange.startIndex];
+  const end = data[safeRange.endIndex];
+
+  if (!start || !end) return '';
+
+  const count = safeRange.endIndex - safeRange.startIndex + 1;
+
+  if (resolution === 'hourly') {
+    return `${toUtcDateKey(start.timestamp)} · ${count} hours`;
+  }
+
+  const unitLabel = resolution === 'daily' ? 'days' : resolution === 'weekly' ? 'weeks' : 'months';
+  return `${formatTickLabel(start.timestamp, resolution)} to ${formatTickLabel(end.timestamp, resolution)} · ${count} ${unitLabel}`;
+}
+
+function startOfUtcBucket(timestamp: string, resolution: Exclude<Resolution, 'hourly'>) {
+  const date = new Date(timestamp);
+
+  if (Number.isNaN(date.getTime())) {
+    return timestamp;
+  }
+
+  const bucket = new Date(Date.UTC(
+    date.getUTCFullYear(),
+    date.getUTCMonth(),
+    date.getUTCDate(),
+    0,
+    0,
+    0,
+  ));
+
+  if (resolution === 'weekly') {
+    const day = bucket.getUTCDay();
+    const offsetToMonday = day === 0 ? -6 : 1 - day;
+    bucket.setUTCDate(bucket.getUTCDate() + offsetToMonday);
+  }
+
+  if (resolution === 'monthly') {
+    bucket.setUTCDate(1);
+  }
+
+  return toIsoString(bucket);
+}
+
+function aggregateSeries(data: LoadDataPoint[], resolution: Exclude<Resolution, 'hourly'>): LoadDataPoint[] {
+  const buckets = new Map<string, LoadDataPoint>();
+
+  data
+    .slice()
+    .sort((left, right) => left.timestamp.localeCompare(right.timestamp))
+    .forEach((point) => {
+      const bucketTimestamp = startOfUtcBucket(point.timestamp, resolution);
+      const existing = buckets.get(bucketTimestamp);
+
+      if (existing) {
+        existing.electricity = clampNumber(existing.electricity + point.electricity);
+        existing.heating = clampNumber(existing.heating + point.heating);
+        existing.hotwater = clampNumber(existing.hotwater + point.hotwater);
+        return;
+      }
+
+      buckets.set(bucketTimestamp, {
+        timestamp: bucketTimestamp,
+        electricity: clampNumber(point.electricity),
+        heating: clampNumber(point.heating),
+        hotwater: clampNumber(point.hotwater),
+      });
+    });
+
+  return Array.from(buckets.values());
+}
+
+function getDerivedData(dataset: DatasetByResolution, resolution: Resolution): DerivedDataState {
+  const directRows = dataset[resolution];
+
+  if (directRows.length > 0) {
+    return { rows: directRows, sourceResolution: resolution, isDerived: false };
+  }
+
+  if (resolution === 'hourly') {
+    return { rows: [], sourceResolution: null, isDerived: false };
+  }
+
+  const targetIndex = RESOLUTION_ORDER.indexOf(resolution);
+
+  for (let index = 0; index < targetIndex; index += 1) {
+    const sourceResolution = RESOLUTION_ORDER[index];
+    const sourceRows = dataset[sourceResolution];
+
+    if (sourceRows.length === 0) continue;
+
+    return {
+      rows: aggregateSeries(sourceRows, resolution),
+      sourceResolution,
+      isDerived: true,
+    };
+  }
+
+  return { rows: [], sourceResolution: null, isDerived: false };
+}
+
 function createDefaultDataset(): DatasetByResolution {
   const hourly: LoadDataPoint[] = [];
   const daily: LoadDataPoint[] = [];
@@ -105,7 +300,7 @@ function normalizePoint(input: any, index: number, resolution: Resolution = 'hou
   const fallback = offsetIsoDate(BASE_UTC_DATE, index, 'hour');
   const pointResolution = (input.resolution as Resolution | undefined) ?? resolution;
   const timestamp = normalizeDatetime(
-    input.datetime ?? input.timestamp ?? input.time ?? input.date,
+    input.datetime ?? input.timestamp ?? input.time ?? input.date ?? input.timesteps ?? input.Zeit,
     fallback,
     pointResolution,
     index,
@@ -152,11 +347,13 @@ function parseCsv(text: string, resolution: Resolution): LoadDataPoint[] {
     throw new Error('CSV files need a header row and at least one data row.');
   }
 
-  const headers = lines[0].split(',').map((header) => header.trim().toLowerCase());
-  const timestampIndex = headers.findIndex((header) => ['datetime', 'timestamp', 'time', 'date'].includes(header));
-  const electricityIndex = headers.findIndex((header) => ['electricity', 'power', 'el'].includes(header));
-  const heatingIndex = headers.findIndex((header) => ['heating', 'heat'].includes(header));
-  const hotwaterIndex = headers.findIndex((header) => ['hotwater', 'hot_water', 'hot water', 'dhw'].includes(header));
+  const headers = lines[0]
+    .split(',')
+    .map((header) => header.replace(/^\uFEFF/, '').trim().toLowerCase());
+  const timestampIndex = headers.findIndex((header) => TIMESTAMP_HEADERS.includes(header));
+  const electricityIndex = headers.findIndex((header) => ELECTRICITY_HEADERS.includes(header));
+  const heatingIndex = headers.findIndex((header) => HEATING_HEADERS.includes(header));
+  const hotwaterIndex = headers.findIndex((header) => HOTWATER_HEADERS.includes(header));
 
   if (timestampIndex === -1) {
     throw new Error('CSV files must include a timestamp column.');
@@ -232,33 +429,49 @@ function mergeUploadedData(
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-interface LoadProfileViewerProps {
-  buildingId?: string;
+export interface EnergyTotals {
+  electricity: string;
+  heating: string;
+  hotwater: string;
+  unit: string;
 }
 
-export function LoadProfileViewer({ buildingId = 'Building 3' }: LoadProfileViewerProps) {
+interface LoadProfileViewerProps {
+  buildingId?: string;
+  onTotalsChange?: (totals: EnergyTotals) => void;
+}
+
+export function LoadProfileViewer({ buildingId = 'Building 3', onTotalsChange }: LoadProfileViewerProps) {
   const [energyType, setEnergyType] = useState<EnergyType>('electricity');
   const [resolution, setResolution] = useState<Resolution>('daily');
+  const [windowMode, setWindowMode] = useState<WindowMode>('stepped');
   const [dataset, setDataset] = useState<DatasetByResolution>(() => createDefaultDataset());
   const [sourceLabel, setSourceLabel] = useState('No profile loaded');
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState('');
+  const [brushRange, setBrushRange] = useState<BrushRange>({ startIndex: 0, endIndex: 0 });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const data = dataset[resolution];
+  const derivedData = getDerivedData(dataset, resolution);
+  const data = derivedData.rows;
   const hasData = data.length > 0;
+  const defaultWindowSize = DEFAULT_WINDOW_BY_RESOLUTION[resolution];
+  const availableHourlyDates = resolution === 'hourly' ? getDistinctDateKeys(data) : [];
+  const showBrush = data.length > 1;
+  const dataSignature = hasData
+    ? `${resolution}-${derivedData.sourceResolution ?? 'none'}-${data.length}-${data[0].timestamp}-${data[data.length - 1].timestamp}`
+    : `${resolution}-empty`;
 
-  const energyOptions = [
-    { value: 'electricity', label: 'Electricity' },
-    { value: 'heating', label: 'Heating' },
-    { value: 'hotwater', label: 'Hot Water' },
-    { value: 'combined', label: 'Combined' },
-  ];
-
+  // Shorter labels that communicate "what time period each data point covers"
   const resolutionOptions = [
-    { value: 'hourly', label: 'Hourly' },
-    { value: 'daily', label: 'Daily' },
-    { value: 'weekly', label: 'Weekly' },
-    { value: 'monthly', label: 'Monthly' },
+    { value: 'hourly',  label: 'Hour'  },
+    { value: 'daily',   label: 'Day'   },
+    { value: 'weekly',  label: 'Week'  },
+    { value: 'monthly', label: 'Month' },
+  ];
+  const windowModeOptions = [
+    { value: 'stepped', label: 'Stepped' },
+    { value: 'free', label: 'Free Range' },
   ];
 
   const getUnit = () => {
@@ -270,10 +483,129 @@ export function LoadProfileViewer({ buildingId = 'Building 3' }: LoadProfileView
     }
   };
 
+  const getSourceCaption = () => {
+    if (!derivedData.isDerived || !derivedData.sourceResolution || derivedData.sourceResolution === resolution) {
+      return sourceLabel;
+    }
+
+    return `${sourceLabel} · ${resolution} view aggregated from ${derivedData.sourceResolution}`;
+  };
+
+  const getStepLabel = () => {
+    if (resolution === 'hourly') return '24-hour day';
+    if (resolution === 'daily') return '365-day window';
+    if (resolution === 'weekly') return '52-week window';
+    return '12-month window';
+  };
+
+  const updateBrushRange = (nextRange: BrushRange) => {
+    setBrushRange((previous) => (rangeEquals(previous, nextRange) ? previous : nextRange));
+  };
+
+  const fitAllData = () => {
+    if (!hasData) return;
+
+    setWindowMode('free');
+    updateBrushRange(buildWindowRange(data.length, 0, data.length));
+  };
+
+  const shiftSteppedWindow = (direction: -1 | 1) => {
+    if (!hasData || windowMode !== 'stepped') return;
+
+    if (resolution === 'hourly') {
+      const currentIndex = availableHourlyDates.indexOf(selectedDate);
+      const fallbackIndex = availableHourlyDates.length - 1;
+      const baseIndex = currentIndex >= 0 ? currentIndex : fallbackIndex;
+      const nextIndex = Math.max(0, Math.min(baseIndex + direction, availableHourlyDates.length - 1));
+      const nextDate = availableHourlyDates[nextIndex];
+      if (nextDate) setSelectedDate(nextDate);
+      return;
+    }
+
+    updateBrushRange(buildWindowRange(data.length, brushRange.startIndex + direction * defaultWindowSize, defaultWindowSize));
+  };
+
+  const handleBrushChange = (next: { startIndex?: number; endIndex?: number }) => {
+    if (!hasData) return;
+
+    const nextStart = next.startIndex ?? brushRange.startIndex;
+    const nextEnd = next.endIndex ?? brushRange.endIndex;
+
+    if (windowMode === 'free') {
+      updateBrushRange(clampBrushRange(data.length, nextStart, nextEnd));
+      return;
+    }
+
+    if (resolution === 'hourly') {
+      const dateAtStart = data[Math.max(0, Math.min(nextStart, data.length - 1))];
+      if (dateAtStart) setSelectedDate(toUtcDateKey(dateAtStart.timestamp));
+      return;
+    }
+
+    updateBrushRange(buildWindowRange(data.length, nextStart, defaultWindowSize));
+  };
+
   const calculateTotal = (key: 'electricity' | 'heating' | 'hotwater') => {
     if (!hasData) return '—';
-    return data.reduce((sum, d) => sum + d[key], 0).toFixed(0);
+    return formatEnergyValue(data.reduce((sum, d) => sum + d[key], 0), 6);
   };
+
+  // Report totals up whenever data or resolution changes.
+  useEffect(() => {
+    if (!onTotalsChange) return;
+    onTotalsChange({
+      electricity: calculateTotal('electricity'),
+      heating:     calculateTotal('heating'),
+      hotwater:    calculateTotal('hotwater'),
+      unit:        getUnit() ?? 'kWh',
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataset, resolution]);
+
+  useEffect(() => {
+    if (!hasData) {
+      updateBrushRange({ startIndex: 0, endIndex: 0 });
+      if (selectedDate !== '') setSelectedDate('');
+      return;
+    }
+
+    if (resolution === 'hourly') {
+      const fallbackDate = availableHourlyDates[availableHourlyDates.length - 1] ?? '';
+      const nextDate = availableHourlyDates.includes(selectedDate) ? selectedDate : fallbackDate;
+
+      if (nextDate !== selectedDate) {
+        setSelectedDate(nextDate);
+      }
+
+      if (windowMode === 'free') {
+        updateBrushRange(buildWindowRange(data.length, 0, data.length));
+        return;
+      }
+
+      const nextRange = nextDate
+        ? findDateRange(data, nextDate) ?? buildWindowRange(data.length, Math.max(0, data.length - defaultWindowSize), defaultWindowSize)
+        : buildWindowRange(data.length, Math.max(0, data.length - defaultWindowSize), defaultWindowSize);
+
+      updateBrushRange(nextRange);
+      return;
+    }
+
+    if (windowMode === 'free') {
+      updateBrushRange(buildWindowRange(data.length, 0, data.length));
+      return;
+    }
+
+    updateBrushRange(buildWindowRange(data.length, Math.max(0, data.length - defaultWindowSize), defaultWindowSize));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataSignature, resolution, windowMode]);
+
+  useEffect(() => {
+    if (!hasData || resolution !== 'hourly' || windowMode !== 'stepped' || selectedDate === '') return;
+
+    const nextRange = findDateRange(data, selectedDate);
+    if (nextRange) updateBrushRange(nextRange);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, dataSignature, resolution, windowMode]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -311,309 +643,274 @@ export function LoadProfileViewer({ buildingId = 'Building 3' }: LoadProfileView
     URL.revokeObjectURL(url);
   };
 
+  // Colours and labels for the vertical energy type tab strip.
+  const ENERGY_META: Record<EnergyType, { label: string; Icon: React.ElementType }> = {
+    electricity: { label: 'Electricity', Icon: Zap },
+    heating:     { label: 'Heating', Icon: Flame },
+    hotwater:    { label: 'Hot Water', Icon: Droplets },
+    combined:    { label: 'Combined', Icon: Layers3 },
+  };
+
   return (
-    <Box sx={{
-      width: '100%',
-      height: '100%',
-      bgcolor: T.card,
-      overflow: 'hidden',
-      display: 'flex',
-      flexDirection: 'column',
+    <div style={{
+      width: '100%', height: '100%', display: 'flex', flexDirection: 'column',
+      background: 'white', borderRadius: 10, overflow: 'hidden',
+      border: '1px solid rgba(226,232,240,0.7)',
+      boxShadow: '0 1px 3px rgba(15,23,42,0.07), 0 4px 16px rgba(15,23,42,0.08)',
     }}>
-      {/* Header with tabs and resolution selector */}
-      <Box sx={{
-        px: 1.5,
-        pt: 1.5,
-        pb: 1,
-        borderBottom: `1px solid ${T.border}`,
-      }}>
-        {/* Title */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-          <Box sx={{
-            width: 24,
-            height: 24,
-            bgcolor: '#10b981',
-            borderRadius: '6px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-            '& svg': { fontSize: '14px !important', color: '#ffffff' },
-          }}>
-            <BoltOutlined />
-          </Box>
-          <Typography sx={{ fontSize: 12, fontWeight: 600, color: T.foreground, flex: 1 }}>
-            Load Profile Viewer
+
+      {/* ── Header ── */}
+      <div style={{ padding: '10px 14px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        <Box sx={{
+          width: 22, height: 22, bgcolor: '#10b981', borderRadius: '4px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          '& svg': { fontSize: '13px !important', color: '#ffffff' },
+        }}>
+          <BoltOutlined />
+        </Box>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Typography sx={{ fontSize: 12, fontWeight: 700, color: T.foreground, lineHeight: 1.2 }}>
+            Energy Usage
           </Typography>
-          <Typography sx={{ fontSize: 10, color: T.mutedFg, flexShrink: 0 }}>
-            {buildingId}
+          <Typography sx={{ fontSize: 10, color: T.mutedFg, lineHeight: 1.2 }}>
+            {buildingId} · {getSourceCaption()}
           </Typography>
+        </div>
+        {/* Resolution — labelled as the time period each point covers */}
+        <SegmentedControl options={resolutionOptions} value={resolution} onChange={(v) => setResolution(v as Resolution)} />
+        {/* Graph-data import / export — distinct from the full-model import in the header */}
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+            height: 26, padding: '0 9px', borderRadius: 5,
+            border: `1px solid ${T.border}`, background: 'transparent',
+            color: T.foreground, cursor: 'pointer', fontSize: 11, fontWeight: 600, flexShrink: 0,
+          }}
+        >
+          <Upload size={12} /> Upload load profile
+        </button>
+        <button
+          type="button"
+          onClick={handleDownload}
+          disabled={!hasData}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+            height: 26, padding: '0 9px', borderRadius: 5,
+            border: `1px solid ${T.border}`, background: 'transparent',
+            color: hasData ? T.foreground : T.mutedFg,
+            cursor: hasData ? 'pointer' : 'not-allowed',
+            fontSize: 11, fontWeight: 600, flexShrink: 0, opacity: hasData ? 1 : 0.5,
+          }}
+        >
+          <Download size={12} /> Download load profile
+        </button>
+        <input ref={fileInputRef} type="file" accept=".json,.csv" style={{ display: 'none' }} onChange={handleFileUpload} />
+      </div>
+
+      {hasData && (
+        <div style={{ padding: '8px 14px', borderBottom: `1px solid ${T.border}`, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <SegmentedControl options={windowModeOptions} value={windowMode} onChange={(value) => setWindowMode(value as WindowMode)} />
+          {windowMode === 'stepped' && resolution === 'hourly' && availableHourlyDates.length > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={() => shiftSteppedWindow(-1)}
+                disabled={availableHourlyDates.indexOf(selectedDate) <= 0}
+                style={{
+                  height: 28, padding: '0 10px', borderRadius: 5,
+                  border: `1px solid ${T.border}`, background: 'transparent',
+                  color: availableHourlyDates.indexOf(selectedDate) <= 0 ? T.mutedFg : T.foreground,
+                  cursor: availableHourlyDates.indexOf(selectedDate) <= 0 ? 'not-allowed' : 'pointer', fontSize: 11, fontWeight: 600,
+                }}
+              >
+                Prev Day
+              </button>
+              <input
+                type="date"
+                value={selectedDate}
+                min={availableHourlyDates[0]}
+                max={availableHourlyDates[availableHourlyDates.length - 1]}
+                onChange={(event) => setSelectedDate(event.target.value)}
+                style={{
+                  height: 28, padding: '0 10px', borderRadius: 5,
+                  border: `1px solid ${T.border}`, background: 'white', color: T.foreground, fontSize: 11,
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => shiftSteppedWindow(1)}
+                disabled={availableHourlyDates.indexOf(selectedDate) === -1 || availableHourlyDates.indexOf(selectedDate) >= availableHourlyDates.length - 1}
+                style={{
+                  height: 28, padding: '0 10px', borderRadius: 5,
+                  border: `1px solid ${T.border}`, background: 'transparent',
+                  color: availableHourlyDates.indexOf(selectedDate) >= availableHourlyDates.length - 1 ? T.mutedFg : T.foreground,
+                  cursor: availableHourlyDates.indexOf(selectedDate) >= availableHourlyDates.length - 1 ? 'not-allowed' : 'pointer', fontSize: 11, fontWeight: 600,
+                }}
+              >
+                Next Day
+              </button>
+            </>
+          )}
+          {windowMode === 'stepped' && resolution !== 'hourly' && (
+            <>
+              <button
+                type="button"
+                onClick={() => shiftSteppedWindow(-1)}
+                disabled={brushRange.startIndex <= 0}
+                style={{
+                  height: 28, padding: '0 10px', borderRadius: 5,
+                  border: `1px solid ${T.border}`, background: 'transparent',
+                  color: brushRange.startIndex <= 0 ? T.mutedFg : T.foreground,
+                  cursor: brushRange.startIndex <= 0 ? 'not-allowed' : 'pointer', fontSize: 11, fontWeight: 600,
+                }}
+              >
+                Prev
+              </button>
+              <Typography sx={{ fontSize: 10, color: T.mutedFg, lineHeight: 1.2 }}>
+                {getStepLabel()}
+              </Typography>
+              <button
+                type="button"
+                onClick={() => shiftSteppedWindow(1)}
+                disabled={brushRange.endIndex >= data.length - 1}
+                style={{
+                  height: 28, padding: '0 10px', borderRadius: 5,
+                  border: `1px solid ${T.border}`, background: 'transparent',
+                  color: brushRange.endIndex >= data.length - 1 ? T.mutedFg : T.foreground,
+                  cursor: brushRange.endIndex >= data.length - 1 ? 'not-allowed' : 'pointer', fontSize: 11, fontWeight: 600,
+                }}
+              >
+                Next
+              </button>
+            </>
+          )}
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={fitAllData}
             style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              height: 28,
-              padding: '0 10px',
-              borderRadius: 8,
-              border: `1px solid ${T.border}`,
-              background: T.card,
-              color: T.foreground,
-              cursor: 'pointer',
-              fontSize: 11,
-              fontWeight: 600,
-              flexShrink: 0,
+              height: 28, padding: '0 10px', borderRadius: 5,
+              border: `1px solid ${T.border}`, background: 'transparent', color: T.foreground,
+              cursor: 'pointer', fontSize: 11, fontWeight: 600,
             }}
           >
-            <Upload size={13} />
-            Import data
+            Show All
           </button>
-          <button
-            type="button"
-            onClick={handleDownload}
-            disabled={!hasData}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              height: 28,
-              padding: '0 10px',
-              borderRadius: 8,
-              border: `1px solid ${T.border}`,
-              background: T.card,
-              color: hasData ? T.foreground : T.mutedFg,
-              cursor: hasData ? 'pointer' : 'not-allowed',
-              fontSize: 11,
-              fontWeight: 600,
-              flexShrink: 0,
-              opacity: hasData ? 1 : 0.6,
-            }}
-          >
-            <Download size={13} />
-            Download data
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json,.csv"
-            style={{ display: 'none' }}
-            onChange={handleFileUpload}
-          />
-          <Box sx={{ flexShrink: 0 }}>
-            <SegmentedControl
-              options={resolutionOptions}
-              value={resolution}
-              onChange={(v) => setResolution(v as Resolution)}
-            />
-          </Box>
-        </Box>
-
-        {/* Energy type selector */}
-        <SegmentedControl
-          fullWidth
-          options={energyOptions}
-          value={energyType}
-          onChange={(v) => setEnergyType(v as EnergyType)}
-        />
-
-        <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-          <Typography sx={{ fontSize: 10, color: T.mutedFg }}>
-            Source: {sourceLabel}
+          <Typography sx={{ fontSize: 10, color: T.mutedFg, lineHeight: 1.2 }}>
+            {getVisibleRangeLabel(data, brushRange, resolution)}
           </Typography>
-          <Typography sx={{ fontSize: 10, color: T.mutedFg }}>
-            {hasData ? 'Accepted formats: JSON or CSV with ISO 8601 datetime' : 'Waiting for uploaded or backend profile data'}
+          {windowMode === 'free' && (
+            <Typography sx={{ fontSize: 10, color: T.mutedFg, lineHeight: 1.2 }}>
+              Free range removes fixed steps. Switch to hourly for the finest time selection.
+            </Typography>
+          )}
+        </div>
+      )}
+
+      {uploadError && (
+        <div style={{ margin: '6px 14px 0', border: '1px solid #fecaca', background: '#fef2f2', borderRadius: 6, padding: '4px 8px', flexShrink: 0 }}>
+          <Typography sx={{ fontSize: 10, color: '#b91c1c' }}>{uploadError}</Typography>
+        </div>
+      )}
+
+      {hasData && showBrush && (
+        <div style={{ padding: '6px 14px 0', flexShrink: 0 }}>
+          <Typography sx={{ fontSize: 10, color: T.mutedFg, lineHeight: 1.3 }}>
+            Drag the handles below the chart to zoom. In stepped mode the window snaps to the active resolution; free range removes that constraint.
           </Typography>
-        </Box>
+        </div>
+      )}
 
-        {uploadError && (
-          <Box sx={{ mt: 1, border: '1px solid #fecaca', bgcolor: '#fef2f2', borderRadius: '8px', px: 1, py: 0.75 }}>
-            <Typography sx={{ fontSize: 10, color: '#b91c1c' }}>
-              {uploadError}
-            </Typography>
-          </Box>
-        )}
-      </Box>
-
-      {/* Compact stats row */}
-      <Box sx={{
-        px: 1.5,
-        py: 1,
-        bgcolor: T.inputBg,
-        borderBottom: `1px solid ${T.border}`,
-        display: 'flex',
-        gap: 1,
-      }}>
-        {/* Electricity */}
-        <Box sx={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0.75,
-          px: 1,
-          py: 0.5,
-          bgcolor: T.card,
-          border: `1px solid ${energyType === 'electricity' || energyType === 'combined' ? '#3b82f6' : T.border}`,
-          borderRadius: '6px',
-        }}>
-          <BoltOutlined sx={{ fontSize: '14px !important', color: '#3b82f6' }} />
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography sx={{ fontSize: 10, color: T.mutedFg, lineHeight: 1.2 }}>
-              Electricity
-            </Typography>
-            <Typography sx={{ fontSize: 14, fontWeight: 700, color: T.foreground, lineHeight: 1.2 }}>
-              {calculateTotal('electricity')} <Typography component="span" sx={{ fontSize: 9, fontWeight: 400, color: T.mutedFg }}>{getUnit()}</Typography>
-            </Typography>
-          </Box>
-        </Box>
-
-        {/* Heating */}
-        <Box sx={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0.75,
-          px: 1,
-          py: 0.5,
-          bgcolor: T.card,
-          border: `1px solid ${energyType === 'heating' || energyType === 'combined' ? '#ef4444' : T.border}`,
-          borderRadius: '6px',
-        }}>
-          <LocalFireDepartmentOutlined sx={{ fontSize: '14px !important', color: '#ef4444' }} />
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography sx={{ fontSize: 10, color: T.mutedFg, lineHeight: 1.2 }}>
-              Heating
-            </Typography>
-            <Typography sx={{ fontSize: 14, fontWeight: 700, color: T.foreground, lineHeight: 1.2 }}>
-              {calculateTotal('heating')} <Typography component="span" sx={{ fontSize: 9, fontWeight: 400, color: T.mutedFg }}>{getUnit()}</Typography>
-            </Typography>
-          </Box>
-        </Box>
-
-        {/* Hot Water */}
-        <Box sx={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0.75,
-          px: 1,
-          py: 0.5,
-          bgcolor: T.card,
-          border: `1px solid ${energyType === 'hotwater' || energyType === 'combined' ? '#f59e0b' : T.border}`,
-          borderRadius: '6px',
-        }}>
-          <WaterDropOutlined sx={{ fontSize: '14px !important', color: '#f59e0b' }} />
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography sx={{ fontSize: 10, color: T.mutedFg, lineHeight: 1.2 }}>
-              Hot Water
-            </Typography>
-            <Typography sx={{ fontSize: 14, fontWeight: 700, color: T.foreground, lineHeight: 1.2 }}>
-              {calculateTotal('hotwater')} <Typography component="span" sx={{ fontSize: 9, fontWeight: 400, color: T.mutedFg }}>{getUnit()}</Typography>
-            </Typography>
-          </Box>
-        </Box>
-      </Box>
-
-      {/* Compact Chart */}
-      <Box sx={{
-        minHeight: 0,
-        flex: 1,
-        p: 1,
-        pt: 0.5,
-      }}>
+      {/* ── Chart ── */}
+      <div style={{ flex: 1, minHeight: 0, padding: '8px 12px 4px' }}>
         {hasData ? (
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data} margin={{ top: 5, right: 5, left: -10, bottom: 0 }}>
+            <LineChart key={`${resolution}-${derivedData.sourceResolution ?? 'none'}-${data.length}`} data={data} margin={{ top: 4, right: 4, left: -12, bottom: showBrush ? 18 : 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={T.border} />
               <XAxis
                 dataKey="timestamp"
-                tickFormatter={(value) => formatTickLabel(String(value), resolution)}
+                tickFormatter={(v) => formatTickLabel(String(v), resolution)}
                 tick={{ fontSize: 10, fill: T.mutedFg }}
                 stroke={T.border}
+                minTickGap={resolution === 'hourly' ? 24 : 16}
               />
               <YAxis
+                tickFormatter={(value) => formatEnergyValue(Number(value), 4)}
                 tick={{ fontSize: 10, fill: T.mutedFg }}
                 stroke={T.border}
-                width={35}
+                width={52}
+                domain={["auto", "auto"]}
+                allowDataOverflow
               />
               <ChartTooltip
-                labelFormatter={(value) => `Datetime: ${String(value)}`}
-                contentStyle={{
-                  backgroundColor: T.card,
-                  border: `1px solid ${T.border}`,
-                  borderRadius: '6px',
-                  fontSize: 11,
-                }}
+                labelFormatter={(v) => `Time: ${String(v)}`}
+                formatter={(value) => formatEnergyValue(Number(value), 6)}
+                contentStyle={{ backgroundColor: T.card, border: `1px solid ${T.border}`, borderRadius: 4, fontSize: 11 }}
               />
-              <Legend
-                wrapperStyle={{ fontSize: 9 }}
-                iconType="line"
-                iconSize={8}
-              />
-
+              <Legend wrapperStyle={{ fontSize: 9 }} iconType="line" iconSize={8} />
               {(energyType === 'electricity' || energyType === 'combined') && (
-                <Line
-                  type="monotone"
-                  dataKey="electricity"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  name="Electricity"
-                  dot={false}
-                  activeDot={{ r: 4 }}
-                />
+                <Line type="monotone" dataKey="electricity" stroke="#3b82f6" strokeWidth={2} name="Electricity" dot={false} activeDot={{ r: 4 }} />
               )}
-
               {(energyType === 'heating' || energyType === 'combined') && (
-                <Line
-                  type="monotone"
-                  dataKey="heating"
-                  stroke="#ef4444"
-                  strokeWidth={2}
-                  name="Heating"
-                  dot={false}
-                  activeDot={{ r: 4 }}
-                />
+                <Line type="monotone" dataKey="heating" stroke="#ef4444" strokeWidth={2} name="Heating" dot={false} activeDot={{ r: 4 }} />
               )}
-
               {(energyType === 'hotwater' || energyType === 'combined') && (
-                <Line
-                  type="monotone"
-                  dataKey="hotwater"
-                  stroke="#f59e0b"
-                  strokeWidth={2}
-                  name="Hot Water"
-                  dot={false}
-                  activeDot={{ r: 4 }}
+                <Line type="monotone" dataKey="hotwater" stroke="#f59e0b" strokeWidth={2} name="Hot Water" dot={false} activeDot={{ r: 4 }} />
+              )}
+              {showBrush && (
+                <Brush
+                  dataKey="timestamp"
+                  height={20}
+                  stroke={T.border}
+                  travellerWidth={10}
+                  startIndex={brushRange.startIndex}
+                  endIndex={brushRange.endIndex}
+                  onChange={handleBrushChange}
+                  tickFormatter={(value) => formatTickLabel(String(value), resolution)}
                 />
               )}
             </LineChart>
           </ResponsiveContainer>
         ) : (
-          <Box
-            sx={{
-              height: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              border: `1px dashed ${T.border}`,
-              borderRadius: '10px',
-              bgcolor: T.inputBg,
-              px: 3,
-              textAlign: 'center',
-            }}
-          >
-            <Box>
-              <Typography sx={{ fontSize: 14, fontWeight: 600, color: T.foreground, mb: 0.75 }}>
-                Load profile not available yet
+          <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px dashed ${T.border}`, borderRadius: 6, background: T.inputBg, padding: '0 24px', textAlign: 'center' }}>
+            <div>
+              <Typography sx={{ fontSize: 13, fontWeight: 600, color: T.foreground, mb: 0.5 }}>No usage data loaded</Typography>
+              <Typography sx={{ fontSize: 11, color: T.mutedFg, lineHeight: 1.6 }}>
+                Use "Import Data" to load an energy profile, or connect to the backend.
               </Typography>
-              <Typography sx={{ fontSize: 11, color: T.mutedFg, maxWidth: 420, lineHeight: 1.6 }}>
-                Import a load profile file or wait for the backend response to populate this viewer. Once data is available, the chart and totals will appear here.
-              </Typography>
-            </Box>
-          </Box>
+            </div>
+          </div>
         )}
-      </Box>
-    </Box>
+      </div>
+
+      {/* ── Energy type selector — bottom pill strip ── */}
+      <div style={{ padding: '6px 12px 10px', borderTop: `1px solid ${T.border}`, display: 'flex', gap: 4, flexShrink: 0 }}>
+        {(Object.keys(ENERGY_META) as EnergyType[]).map((type) => {
+          const { label, Icon } = ENERGY_META[type];
+          const active = energyType === type;
+          return (
+            <button
+              key={type}
+              type="button"
+              onClick={() => setEnergyType(type)}
+              style={{
+                flex: 1, padding: '5px 6px', borderRadius: 6,
+                border: `1px solid ${active ? 'rgba(100,116,139,0.45)' : 'rgba(226,232,240,0.9)'}`,
+                background: active ? 'rgba(241,245,249,0.95)' : 'rgba(248,250,252,0.7)',
+                color: active ? T.foreground : T.mutedFg,
+                fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                transition: 'all 0.15s',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              }}
+              aria-pressed={active}
+            >
+              <Icon size={13} strokeWidth={2} />
+              {label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }

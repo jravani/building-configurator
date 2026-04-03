@@ -182,7 +182,7 @@ function openingShapesForFace(
 }
 
 function iconButton(disabled = false) {
-  return `flex size-7 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors ${disabled ? 'opacity-50' : 'hover:bg-muted hover:text-foreground'}`;
+  return `flex size-7 items-center justify-center rounded-[6px] border border-border bg-card text-muted-foreground transition-colors ${disabled ? 'opacity-50' : 'hover:bg-muted hover:text-foreground'}`;
 }
 
 interface Props {
@@ -295,8 +295,8 @@ export function BuildingVisualization({ elements, selectedId, hoveredId, onSelec
   };
 
   return (
-    <div className="relative h-full min-h-0 w-full rounded-xl overflow-hidden border border-border bg-slate-100/70">
-      <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-lg border border-border bg-card/90 p-1 shadow-sm backdrop-blur">
+    <div className="relative h-full min-h-0 w-full rounded-lg overflow-hidden border border-border bg-slate-100/70">
+      <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md border border-border bg-card/90 p-1 shadow-sm backdrop-blur">
         <button
           type="button"
           onClick={() => setViewIndex((current) => (current + VIEW_ORDER.length - 1) % VIEW_ORDER.length)}
