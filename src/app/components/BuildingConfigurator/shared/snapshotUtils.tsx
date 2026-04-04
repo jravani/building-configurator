@@ -10,6 +10,7 @@ import {
   DEFAULT_TOTAL_AREA,
   DEFAULT_AVG_U_VALUE,
 } from './buildingDefaults';
+import { BUILDING_TYPE_OPTIONS, COUNTRY_OPTIONS } from './buildingOptions';
 
 export type SnapshotStatus = 'default' | 'modified';
 
@@ -64,32 +65,83 @@ export function getThermalRating(u: number): { label: string; color: string; bg:
   return             { label: 'Very Poor',   color: '#9f1239', bg: '#fff1f2' };
 }
 
+export interface SnapshotRow {
+  label: string;
+  /** Formatted display string shown when not editing. */
+  value: string;
+  status: SnapshotStatus;
+  /** When set, the row is inline-editable. Key maps to the `general` state object. */
+  editKey?: string;
+  /**
+   * Controls the edit widget rendered for this row:
+   * - 'text'           → free-text input
+   * - 'number'         → numeric input; saved as Number(draft)
+   * - 'select'         → dropdown; requires `options`
+   * - 'year-to-period' → year number input that saves the derived construction period string
+   */
+  editType?: 'text' | 'number' | 'select' | 'year-to-period';
+  /** Option list for 'select' rows. */
+  options?: Array<{ value: string; label: string }>;
+  /** Raw (unformatted) value used as the initial input value when editing starts. */
+  rawValue?: string | number;
+}
+
 /** Builds the rows for the building info table, flagging each value against the default. */
 export function buildSnapshotRows(
   general: typeof DEFAULT_GENERAL,
   elements: Record<string, BuildingElement>,
   totalArea: number,
-): Array<{ label: string; value: string; status: SnapshotStatus }> {
+): SnapshotRow[] {
   return [
     {
       label: 'Type',
       value: general.buildingType,
       status: general.buildingType === DEFAULT_GENERAL.buildingType ? 'default' : 'modified',
+      editKey: 'buildingType',
+      editType: 'select',
+      options: BUILDING_TYPE_OPTIONS,
+      rawValue: general.buildingType,
     },
     {
       label: 'Construction',
       value: general.constructionPeriod,
       status: general.constructionPeriod === DEFAULT_GENERAL.constructionPeriod ? 'default' : 'modified',
+      editKey: 'constructionPeriod',
+      editType: 'year-to-period',
+      rawValue: general.constructionPeriod,
     },
     {
       label: 'Country',
       value: general.country,
       status: general.country === DEFAULT_GENERAL.country ? 'default' : 'modified',
+      editKey: 'country',
+      editType: 'select',
+      options: COUNTRY_OPTIONS,
+      rawValue: general.country,
     },
     {
       label: 'Floor area',
       value: `${general.floorArea.toFixed(1)} m²`,
       status: isCloseTo(general.floorArea, DEFAULT_GENERAL.floorArea) ? 'default' : 'modified',
+      editKey: 'floorArea',
+      editType: 'number',
+      rawValue: general.floorArea,
+    },
+    {
+      label: 'Storeys',
+      value: `${general.storeys}`,
+      status: general.storeys === DEFAULT_GENERAL.storeys ? 'default' : 'modified',
+      editKey: 'storeys',
+      editType: 'number',
+      rawValue: general.storeys,
+    },
+    {
+      label: 'Room height',
+      value: `${general.roomHeight.toFixed(1)} m`,
+      status: isCloseTo(general.roomHeight, DEFAULT_GENERAL.roomHeight) ? 'default' : 'modified',
+      editKey: 'roomHeight',
+      editType: 'number',
+      rawValue: general.roomHeight,
     },
     {
       label: 'Volume',
@@ -98,6 +150,7 @@ export function buildSnapshotRows(
         && isCloseTo(general.roomHeight, DEFAULT_GENERAL.roomHeight)
         ? 'default'
         : 'modified',
+      // Derived from floor area × room height — not directly editable.
     },
     {
       label: 'Envelope',
@@ -106,6 +159,7 @@ export function buildSnapshotRows(
         && Object.keys(elements).length === Object.keys(DEFAULT_ELEMENTS).length
         ? 'default'
         : 'modified',
+      // Envelope is computed from elements — not directly editable here.
     },
   ];
 }

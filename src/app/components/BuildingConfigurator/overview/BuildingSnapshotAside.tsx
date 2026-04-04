@@ -1,19 +1,20 @@
 // Left column of the Overview view: building identity, energy hero, key metrics.
 
-import React, { useState } from 'react';
-import { AlertTriangle, Zap, Flame, Droplets, ChevronDown } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { AlertTriangle, Zap, Flame, Droplets, ChevronDown, Gauge, Pencil, Check, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { EnergyTotals } from './LoadProfileViewer';
-import { SnapshotStatus, SnapshotStatusBadge } from '../shared/snapshotUtils';
+import { SnapshotRow, SnapshotStatusBadge } from '../shared/snapshotUtils';
+import { yearToConstructionPeriod } from '../shared/buildingOptions';
 import { TechnologiesSection } from './TechnologiesSection';
 
 export interface BuildingSnapshotAsideProps {
-  mode: 'basic' | 'expert';
   energyTotals: EnergyTotals;
-  snapshotRows: Array<{ label: string; value: string; status: SnapshotStatus }>;
+  snapshotRows: SnapshotRow[];
   thermalRating: { label: string; color: string; bg: string };
   avgUValue: number;
-  thermalEfficiencyStatus: SnapshotStatus;
+  installedTechIds: string[];
+  onUpdateParam: (key: string, value: string | number) => void;
 }
 
 const ENERGY_ITEMS = [
@@ -22,35 +23,56 @@ const ENERGY_ITEMS = [
   { key: 'hotwater',    label: 'Hot Water',   Icon: Droplets, iconBg: 'bg-blue-500/20',   iconColor: 'text-blue-400',   valueColor: 'text-blue-300'    },
 ] as const;
 
-/** Left panel of the overview: building identity, energy hero numbers, parameters, technologies. */
+/** Left panel of the overview: energy hero numbers, building parameters, technologies. */
 export function BuildingSnapshotAside({
-  mode,
   energyTotals,
   snapshotRows,
   thermalRating,
   avgUValue,
-  thermalEfficiencyStatus,
+  installedTechIds,
+  onUpdateParam,
 }: BuildingSnapshotAsideProps) {
-  const [paramsOpen, setParamsOpen] = useState(false);
+  const [paramsOpen,   setParamsOpen]   = useState(false);
+  const [editingKey,   setEditingKey]   = useState<string | null>(null);
+  const [draft,        setDraft]        = useState('');
+  const inputRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
+
+  const startEditing = (row: SnapshotRow) => {
+    if (!row.editKey) return;
+    setEditingKey(row.editKey);
+    // year-to-period starts blank so the year placeholder is visible
+    setDraft(row.editType === 'year-to-period' ? '' : String(row.rawValue ?? row.value));
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  const saveEditing = (row: SnapshotRow) => {
+    if (!row.editKey || editingKey !== row.editKey) return;
+    let value: string | number;
+    if (row.editType === 'number') {
+      const n = Number(draft);
+      if (!Number.isFinite(n)) return;
+      value = n;
+    } else if (row.editType === 'year-to-period') {
+      const year = parseInt(draft, 10);
+      if (!Number.isFinite(year) || year < 1800 || year > new Date().getFullYear()) return;
+      value = yearToConstructionPeriod(year);
+    } else {
+      value = draft.trim();
+      if (!value) return;
+    }
+    onUpdateParam(row.editKey, value);
+    setEditingKey(null);
+  };
+
+  const cancelEditing = () => setEditingKey(null);
 
   return (
     <aside className="flex min-h-0 flex-col overflow-y-auto border-r border-border/80 bg-slate-100">
 
-      {/* ── Building identity ── */}
-      <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-white px-5 py-4">
-        <div>
-          <p className="text-base font-semibold text-foreground">Building 3</p>
-          <p className="text-xs text-slate-500">Multi-Family House · 48.1351° N, 11.5820° E</p>
-        </div>
-        <span className="rounded-md bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-          {mode}
-        </span>
-      </div>
-
-      {/* ── Energy hero ── */}
+      {/* ── Energy hero + thermal efficiency ── */}
       <div className="bg-slate-800 px-5 py-5">
-        <p className="mb-4 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">
-          Daily Energy Demand
+        <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+          Annual energy demand
         </p>
         <div className="flex flex-col gap-3">
           {ENERGY_ITEMS.map(({ key, label, Icon, iconBg, iconColor, valueColor }) => {
@@ -72,53 +94,144 @@ export function BuildingSnapshotAside({
               </div>
             );
           })}
-        </div>
-      </div>
 
-      {/* ── Thermal efficiency ── */}
-      <div className="flex items-center justify-between border-b border-border/60 bg-white px-5 py-3.5">
-        <span className="text-sm text-slate-600">Thermal efficiency</span>
-        <div className="flex items-center gap-2">
-          {mode === 'expert' && (
-            <span className="text-xs text-slate-400">{avgUValue.toFixed(2)} W/m²K</span>
-          )}
-          <span
-            className="rounded-md px-2.5 py-1 text-xs font-semibold"
-            style={{ color: thermalRating.color, background: thermalRating.bg }}
-          >
-            {thermalRating.label}
-          </span>
-          <SnapshotStatusBadge status={thermalEfficiencyStatus} />
+          {/* Thermal efficiency — same visual row, separated by subtle rule */}
+          <div className="border-t border-slate-700/60 pt-3 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="flex size-7 items-center justify-center rounded-md bg-slate-600/50">
+                <Gauge className="size-4 text-slate-300" />
+              </div>
+              <span className="text-sm text-slate-300">Thermal efficiency</span>
+            </div>
+            <div className="text-right">
+              <span className="text-base font-bold leading-none" style={{ color: thermalRating.color }}>
+                {thermalRating.label}
+              </span>
+              <span className="ml-1.5 text-[11px] text-slate-500">{avgUValue.toFixed(2)} W/m²K</span>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* ── Building parameters (collapsible) ── */}
-      <div className="border-b border-border/60 bg-white">
+      <div className="border-b border-border/60">
         <button
           type="button"
           onClick={() => setParamsOpen((v) => !v)}
-          className="flex w-full cursor-pointer items-center justify-between px-5 py-3 text-left"
+          className="flex w-full cursor-pointer items-center justify-between bg-white px-5 py-3 text-left hover:bg-slate-50 transition-colors"
         >
-          <span className="text-sm font-medium text-slate-600">Building parameters</span>
+          <span className="text-sm font-medium text-slate-700">Building parameters</span>
           <ChevronDown className={cn(
             'size-4 text-slate-400 transition-transform duration-150',
             paramsOpen && 'rotate-180',
           )} />
         </button>
         {paramsOpen && (
-          <table className="w-full text-[11px]">
-            <tbody className="divide-y divide-slate-100">
-              {snapshotRows.map(({ label, value, status }) => (
-                <tr key={label}>
-                  <td className="px-5 py-1.5 text-slate-400">{label}</td>
-                  <td className="px-5 py-1.5 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <span className="font-medium text-foreground">{value}</span>
-                      <SnapshotStatusBadge status={status} />
-                    </div>
-                  </td>
-                </tr>
-              ))}
+          <table className="w-full text-[11px] bg-white">
+            {/* col 1: label  col 2: value  col 3: badge  col 4: action */}
+            <colgroup>
+              <col className="w-[36%]" />
+              <col />
+              <col className="w-[72px]" />
+              <col className="w-7" />
+            </colgroup>
+            <tbody>
+              {snapshotRows.map((row) => {
+                const isEditing = editingKey === row.editKey && !!row.editKey;
+                return (
+                  <tr
+                    key={row.label}
+                    className="group border-t border-slate-100 hover:bg-slate-50 transition-colors"
+                    onKeyDown={isEditing ? (e) => {
+                      if (e.key === 'Enter')  { e.preventDefault(); saveEditing(row); }
+                      if (e.key === 'Escape') { e.preventDefault(); cancelEditing(); }
+                    } : undefined}
+                  >
+                    <td className="px-4 py-2 text-slate-500">{row.label}</td>
+
+                    {isEditing ? (
+                      /* Editing: input spans cols 2-4 */
+                      <td colSpan={3} className="px-4 py-1.5">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {row.editType === 'select' ? (
+                            <select
+                              ref={inputRef as unknown as React.RefObject<HTMLSelectElement>}
+                              value={draft}
+                              onChange={(e) => setDraft(e.target.value)}
+                              className="flex-1 max-w-[180px] rounded border border-blue-300 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700 outline-none ring-1 ring-blue-200 focus:ring-blue-400"
+                            >
+                              {row.options?.map((opt) => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                            </select>
+                          ) : row.editType === 'year-to-period' ? (
+                            <div className="flex flex-col items-end gap-0.5">
+                              <input
+                                ref={inputRef}
+                                type="number"
+                                min={1800}
+                                max={new Date().getFullYear()}
+                                placeholder="e.g. 1985"
+                                value={draft}
+                                onChange={(e) => setDraft(e.target.value)}
+                                className="w-24 rounded border border-blue-300 bg-white px-2 py-0.5 text-right text-[11px] font-medium text-slate-700 outline-none ring-1 ring-blue-200 focus:ring-blue-400"
+                              />
+                              {draft && Number.isFinite(parseInt(draft, 10)) && (
+                                <span className="text-[10px] text-slate-400">
+                                  → {yearToConstructionPeriod(parseInt(draft, 10))}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <input
+                              ref={inputRef}
+                              type={row.editType === 'number' ? 'number' : 'text'}
+                              value={draft}
+                              onChange={(e) => setDraft(e.target.value)}
+                              className="w-28 rounded border border-blue-300 bg-white px-2 py-0.5 text-right text-[11px] font-medium text-slate-700 outline-none ring-1 ring-blue-200 focus:ring-blue-400"
+                            />
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => saveEditing(row)}
+                            className="flex size-5 items-center justify-center rounded bg-emerald-500 text-white hover:bg-emerald-600 cursor-pointer [&_svg]:size-3 shrink-0"
+                          >
+                            <Check />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={cancelEditing}
+                            className="flex size-5 items-center justify-center rounded border border-slate-200 text-slate-500 hover:bg-slate-100 cursor-pointer [&_svg]:size-3 shrink-0"
+                          >
+                            <X />
+                          </button>
+                        </div>
+                      </td>
+                    ) : (
+                      /* Display: each element in its own column */
+                      <>
+                        <td className="px-4 py-2 text-right font-medium text-slate-700 tabular-nums">
+                          {row.value}
+                        </td>
+                        <td className="px-1 py-2 text-center">
+                          <SnapshotStatusBadge status={row.status} />
+                        </td>
+                        <td className="py-2 pr-3 text-center">
+                          {row.editKey ? (
+                            <button
+                              type="button"
+                              onClick={() => startEditing(row)}
+                              className="invisible group-hover:visible inline-flex size-5 items-center justify-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-600 cursor-pointer [&_svg]:size-3 transition-colors"
+                            >
+                              <Pencil />
+                            </button>
+                          ) : null}
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -129,7 +242,7 @@ export function BuildingSnapshotAside({
         <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">
           Technologies
         </p>
-        <TechnologiesSection />
+        <TechnologiesSection installedTechIds={installedTechIds} />
       </div>
 
       {/* ── Data quality notice (demoted to footer) ── */}
@@ -137,7 +250,7 @@ export function BuildingSnapshotAside({
         <div className="flex items-center gap-2">
           <AlertTriangle className="size-3.5 shrink-0 text-amber-500" />
           <p className="text-[11px] text-amber-700">
-            Values based on public data estimates - if you have more accurate data, please configure to improve accuracy.
+            Values based on public data estimates, values may vary. Feel free to adjust parameters and technologies to see how they impact the results.
           </p>
         </div>
       </div>
