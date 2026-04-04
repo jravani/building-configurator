@@ -3,7 +3,7 @@ import { Box, Typography } from '@mui/material';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, Legend, ResponsiveContainer, Brush } from 'recharts';
 import { BoltOutlined } from '@mui/icons-material';
 import { Download, Upload, Zap, Flame, Droplets, Layers3 } from 'lucide-react';
-import { T, SegmentedControl } from './ui';
+import { T, SegmentedControl } from '../shared/ui';
 
 // ─── Static Data Model ────────────────────────────────────────────────────────
 

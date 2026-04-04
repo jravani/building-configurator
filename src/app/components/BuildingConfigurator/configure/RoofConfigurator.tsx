@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ShieldCheck, CloudDownload, Sun, Check, Plus, Trash2, RotateCcw, AlertTriangle } from 'lucide-react';
-import { T, NumberInput, RangeSlider, FieldRow, FieldLabel, SegmentedControl, SectionLabel } from './ui';
+import { T, NumberInput, RangeSlider, FieldRow, FieldLabel, SegmentedControl, SectionLabel } from '../shared/ui';
 import { cn } from '@/lib/utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────

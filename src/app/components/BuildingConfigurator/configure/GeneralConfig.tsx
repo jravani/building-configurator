@@ -3,7 +3,7 @@ import { Zap, Flame, Droplets } from 'lucide-react';
 import {
   NumberInput, SelectInput, FieldRow, FieldLabel,
   ConfigSection, ToggleSwitch, InlineStepper, InfoTip,
-} from './ui';
+} from '../shared/ui';
 
 // ─── Options ──────────────────────────────────────────────────────────────────
 

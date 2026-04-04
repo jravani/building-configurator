@@ -3,7 +3,7 @@ import { X } from 'lucide-react';
 import {
   T, NumberInput, RangeSlider, FieldRow, FieldLabel,
   TypeBadge, ConfigSection, SegmentedControl,
-} from './ui';
+} from '../shared/ui';
 import { RoofConfigurator } from './RoofConfigurator';
 import type { BuildingElement } from './BuildingVisualization';
 import type { RoofConfig } from './RoofConfigurator';
