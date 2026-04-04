@@ -1,33 +1,33 @@
 // Main building configurator panel.
 // Owns all application state and handlers; delegates rendering to sub-components.
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
   Download, Upload, X, Building2, RotateCcw, Check, AlertTriangle,
+  Flame, Zap, Droplets,
 } from 'lucide-react';
 
-import { ElementPanel } from './configure/ElementPanel';
-import { GeneralConfig } from './configure/GeneralConfig';
-import { BuildingVisualization } from './configure/BuildingVisualization';
-import type { BuildingElement } from './configure/BuildingVisualization';
+import { BuildingVisualization, VIEW_ORDER } from './configure/BuildingVisualization';
+import type { BuildingElement, FaceGroup } from './configure/BuildingVisualization';
+import { elementToGroup } from './configure/BuildingVisualization';
 import { type EnergyTotals, type LoadDataPoint } from './overview/LoadProfileViewer';
 import { RoofConfig, DEFAULT_ROOF_CONFIG } from './configure/RoofConfigurator';
-import { SegmentedControl, SectionLabel, ConfiguratorStyles } from './shared/ui';
+import { SegmentedControl, ConfiguratorStyles } from './shared/ui';
 import { cn } from '../../../lib/utils';
 
 import { DEFAULT_ELEMENTS, DEFAULT_GENERAL } from './shared/buildingDefaults';
 import type { BuildingState, ThermalSummary } from '../../lib/buemAdapter';
 import { formatCoordinates } from '../../lib/buemAdapter';
 import {
-  SnapshotStatus,
   getThermalRating,
   buildSnapshotRows,
-  getThermalEfficiencyStatus,
 } from './shared/snapshotUtils';
 import { BuildingSnapshotAside } from './overview/BuildingSnapshotAside';
 import { EnergyEnvelopeColumn } from './overview/EnergyEnvelopeColumn';
-import { ElementList } from './configure/ElementList';
+import { SurfaceGroupSelector } from './configure/SurfaceGroupSelector';
+import { SurfaceGroupEditor } from './configure/SurfaceGroupEditor';
+import { getFaceGroups } from './shared/elementListUtils';
 
 // --- Energy totals helper -----------------------------------------------------
 
@@ -64,6 +64,14 @@ function computeEnergyTotals(
   }
   return { electricity: '—', heating: '—', hotwater: '—', unit: 'kWh' };
 }
+
+// --- Energy items config (used in the configure view's demand mini panel) -----
+
+const ENERGY_ITEMS = [
+  { key: 'heating',     label: 'Heating',     Icon: Flame,    iconBg: 'bg-orange-500/20', iconColor: 'text-orange-400', valueColor: 'text-orange-300' },
+  { key: 'electricity', label: 'Electricity', Icon: Zap,      iconBg: 'bg-yellow-500/20', iconColor: 'text-yellow-400', valueColor: 'text-yellow-300' },
+  { key: 'hotwater',    label: 'Hot Water',   Icon: Droplets, iconBg: 'bg-blue-500/20',   iconColor: 'text-blue-400',   valueColor: 'text-blue-300'   },
+] as const;
 
 // --- Header icon button (local — only used in this file) ----------------------
 
@@ -118,12 +126,9 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
   const [general,       setGeneralRaw]    = useState(initialGeneral);
   const [roofConfig,    setRoofConfig]    = useState<RoofConfig>(DEFAULT_ROOF_CONFIG);
   const [selectedId,    setSelectedId]    = useState<string | null>(null);
-  const [hoveredId,     setHoveredId]     = useState<string | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<FaceGroup | null>(null);
+  const [vizViewIndex,  setVizViewIndex]  = useState(0);
   const [uploadError,   setUploadError]   = useState<string | null>(null);
-  const [expanded,      setExpanded]      = useState<Record<string, boolean>>({
-    identity: true, metrics: true, demand: true,
-    ventilation: false, internal: false, thermal: false, solver: false,
-  });
 
   const [savedState,      setSavedState]      = useState({ elements: initialElements, general: initialGeneral, roofConfig: DEFAULT_ROOF_CONFIG });
   const [showCloseDialog, setShowCloseDialog] = useState(false);
@@ -161,6 +166,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
     setSavedState({ elements: nextElements, general: nextGeneral, roofConfig: DEFAULT_ROOF_CONFIG });
     setEnergyTotals(nextTotals);
     setSelectedId(null);
+    setSelectedGroup(null);
     setUploadError(null);
   }, [buildingData]);
 
@@ -179,14 +185,39 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
   const setGen = (key: string, value: any) =>
     setGeneralRaw((prev) => ({ ...prev, [key]: value }));
 
-  const toggleSection = (id: string) =>
-    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  /** Selects a face group from the viz or the group selector column.
+   *  Clears the per-element selection and rotates the 3D preview to front-face the group. */
+  const handleGroupSelect = (group: FaceGroup) => {
+    setSelectedGroup(group);
+    setSelectedId(null);
+    if (group.face !== 'roof' && group.face !== 'floor') {
+      const idx = VIEW_ORDER.findIndex((v) => v.frontWallId === group.face);
+      if (idx !== -1) setVizViewIndex(idx);
+    }
+  };
+
+  /** Applies a new U-value to every element belonging to the given face group. */
+  const updateGroup = (group: FaceGroup, uValue: number) => {
+    setElements((prev) => {
+      const next = { ...prev };
+      Object.entries(next).forEach(([id, el]) => {
+        const eg = elementToGroup(el);
+        if (eg.type === group.type && eg.face === group.face) {
+          next[id] = { ...el, uValue };
+        }
+      });
+      return next;
+    });
+  };
+
 
   const handleReset = () => {
     setElements(initialElements);
     setGeneralRaw(initialGeneral);
     setRoofConfig(DEFAULT_ROOF_CONFIG);
     setSelectedId(null);
+    setSelectedGroup(null);
+    setVizViewIndex(0);
     setUploadError(null);
   };
 
@@ -240,14 +271,13 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
   const buildingType  = identity?.buildingType ?? general.buildingType;
   const coordinates: [number, number] = identity?.coordinates ?? [11.5820, 48.1351];
 
+  const faceGroups  = useMemo(() => getFaceGroups(elements), [elements]);
   const totalArea   = Object.values(elements).reduce((sum, e) => sum + (e.area || 0), 0);
   const avgUValue   = totalArea > 0
     ? Object.values(elements).reduce((sum, e) => sum + e.uValue * e.area, 0) / totalArea
     : 0;
-  const thermalRating           = getThermalRating(avgUValue);
-  const thermalEfficiencyStatus: SnapshotStatus = getThermalEfficiencyStatus(avgUValue);
-  const snapshotRows            = buildSnapshotRows(general, elements, totalArea);
-  const selectedElement         = selectedId ? elements[selectedId] ?? null : null;
+  const thermalRating = getThermalRating(avgUValue);
+  const snapshotRows  = buildSnapshotRows(general, elements, totalArea);
 
   return (
     <div className="cfg-panel mr-[10px] h-[min(920px,calc(100vh-24px))] w-[min(1540px,calc(100vw-60px))] rounded-lg shadow-2xl flex flex-col bg-card overflow-hidden">
@@ -263,6 +293,11 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
             <p className="text-sm font-semibold text-foreground leading-tight">{buildingLabel} · {buildingType}</p>
             <p className="text-[11px] text-muted-foreground leading-tight">{formatCoordinates(coordinates[0], coordinates[1])}</p>
           </div>
+          {workspaceView === 'configure' && (
+            <span className="shrink-0 rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-amber-700">
+              Under Construction (Alpha Preview)
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -318,72 +353,67 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
               />
             </div>
           ) : (
-            // ── Configure layout: element helper sidebar + edit workspace ──
-            <div className="grid h-full min-h-0 grid-cols-[340px_minmax(0,1fr)] overflow-hidden">
+            // ── Configure layout: preview + demand (left) | group editor + selector (right) ──
+            <div className="grid h-full min-h-0 grid-cols-[2fr_3fr] overflow-hidden">
 
-              {/* Under development banner */}
-              <div className="col-span-2 flex items-center gap-3 border-b border-amber-200 bg-amber-50 px-5 py-3">
-                <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-amber-700">Work in progress</span>
-                <p className="text-xs text-amber-800">
-                  The Configure view is still under development — please focus your feedback on the Overview for now.
-                </p>
-              </div>
+              {/* ── Left column: 3D preview + preliminary energy demand ── */}
+              <aside className="flex min-h-0 flex-col overflow-hidden border-r border-border/80 bg-slate-50/80">
 
-              <aside className="min-h-0 border-r border-border/80 bg-slate-50/80 p-4">
-                <div className="flex h-full min-h-0 flex-col gap-4">
-                  <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-[0_16px_32px_rgba(15,23,42,0.08)]">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Active Element</p>
-                    <p className="mt-1 text-sm font-semibold text-foreground">
-                      {selectedElement ? selectedElement.label : 'No element selected'}
-                    </p>
-                    <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
-                      {selectedElement
-                        ? `Editing ${selectedElement.type} with area ${selectedElement.area.toFixed(1)} m² and U-value ${selectedElement.uValue.toFixed(2)}.`
-                        : 'Choose an element from the helper list or the mini preview below.'}
-                    </p>
-                  </section>
+                {/* 3D preview — takes all remaining vertical space */}
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-b border-border/60 bg-white">
+                  <p className="shrink-0 px-4 pt-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                    3D Preview
+                  </p>
+                  <div className="min-h-0 flex-1 overflow-hidden px-3 pb-3">
+                    <BuildingVisualization
+                      elements={elements}
+                      selectedGroup={selectedGroup}
+                      onSelectGroup={handleGroupSelect}
+                      viewIndex={vizViewIndex}
+                      onViewChange={setVizViewIndex}
+                    />
+                  </div>
+                </div>
 
-                  <section className="h-[260px] shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_16px_32px_rgba(15,23,42,0.08)]">
-                    <div className="border-b border-border/80 px-4 py-3">
-                      <p className="text-xs font-semibold text-foreground">Selection Helper</p>
-                      <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
-                        Keep a compact preview available while editing.
-                      </p>
-                    </div>
-                    <div className="h-full overflow-hidden p-3">
-                      <BuildingVisualization
-                        elements={elements}
-                        selectedId={selectedId}
-                        hoveredId={hoveredId}
-                        onSelect={setSelectedId}
-                        onHover={setHoveredId}
-                      />
-                    </div>
-                  </section>
-
-                  <section className="min-h-0 flex-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-[0_16px_32px_rgba(15,23,42,0.08)]">
-                    <div className="border-b border-border/80 px-4 py-3">
-                      <SectionLabel>Element Helper</SectionLabel>
-                      <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
-                        Select another surface without leaving configuration mode.
-                      </p>
-                    </div>
-                    <div className="h-full overflow-y-auto px-4 pb-4 pt-3">
-                      <ElementList
-                        elements={elements}
-                        selectedId={selectedId}
-                        onSelect={setSelectedId}
-                        roofConfig={roofConfig}
-                      />
-                    </div>
-                  </section>
+                {/* Preliminary energy demand mini panel */}
+                <div className="shrink-0 bg-slate-800 px-5 py-4">
+                  <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                    Preliminary energy demand
+                  </p>
+                  <div className="flex flex-col gap-2.5">
+                    {ENERGY_ITEMS.map(({ key, label, Icon, iconBg, iconColor, valueColor }) => {
+                      const value = energyTotals[key as keyof EnergyTotals];
+                      return (
+                        <div key={key} className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className={cn('flex size-6 shrink-0 items-center justify-center rounded-md', iconBg)}>
+                              <Icon className={cn('size-3.5', iconColor)} />
+                            </div>
+                            <span className="text-xs text-slate-300">{label}</span>
+                          </div>
+                          <div className="text-right">
+                            <span className={cn('text-base font-bold leading-none', value === '—' ? 'text-slate-500' : valueColor)}>
+                              {value}
+                            </span>
+                            <span className="ml-1 text-[10px] text-slate-500">{energyTotals.unit}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-3 text-[9px] text-slate-600">
+                    Will update live as surface properties change
+                  </p>
                 </div>
               </aside>
 
-              <section className="min-h-0 bg-[linear-gradient(180deg,rgba(250,250,252,0.9),rgba(255,255,255,1))] p-4">
-                <div className="flex h-full min-h-0 flex-col gap-4">
+              {/* ── Right column: group editor (main) + group selector (narrow sidebar) ── */}
+              <section className="flex min-h-0 flex-row overflow-hidden">
+
+                {/* Surface group editor — fills available width */}
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
                   {uploadError && (
-                    <div className="flex items-start gap-1.5 rounded-md border border-red-200 bg-red-50 px-3 py-2.5 shadow-[0_10px_24px_rgba(239,68,68,0.08)]">
+                    <div className="m-3 mb-0 flex items-start gap-1.5 rounded-md border border-red-200 bg-red-50 px-3 py-2.5">
                       <p className="flex-1 text-[11px] leading-snug text-destructive">{uploadError}</p>
                       <button
                         type="button"
@@ -392,54 +422,27 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
                       >×</button>
                     </div>
                   )}
+                  <SurfaceGroupEditor
+                    selectedGroup={selectedGroup}
+                    groups={faceGroups}
+                    onUpdateGroup={updateGroup}
+                  />
+                </div>
 
-                  <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                    <div className="flex min-h-full flex-col gap-4 pb-4">
-                      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-[0_16px_32px_rgba(15,23,42,0.08)]">
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Configuration</p>
-                            <p className="mt-1 text-base font-semibold text-foreground">Editing workspace</p>
-                            <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
-                              Change detailed properties here without mixing them into the overview panels.
-                            </p>
-                          </div>
-                          <div className="rounded-md bg-slate-100 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-700">
-                            {selectedElement ? selectedElement.label : 'No element selected'}
-                          </div>
-                        </div>
-                      </div>
-
-                      {selectedId ? (
-                        <ElementPanel
-                          selectedId={selectedId}
-                          elements={elements}
-                          onUpdate={updateElement}
-                          onDeselect={() => setSelectedId(null)}
-                          roofConfig={roofConfig}
-                          onRoofConfigChange={setRoofConfig}
-                        />
-                      ) : (
-                        <div className="rounded-lg border border-dashed border-border bg-white p-5 text-center shadow-[0_12px_28px_rgba(15,23,42,0.05)]">
-                          <p className="text-sm font-semibold text-foreground">Select an element to start editing</p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            Use the overview column to inspect the building and choose a surface. Detailed parameters will open here.
-                          </p>
-                        </div>
-                      )}
-
-                      <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-[0_16px_32px_rgba(15,23,42,0.08)]">
-                        <GeneralConfig
-                          mode={mode}
-                          general={general}
-                          setGen={setGen}
-                          expanded={expanded}
-                          toggle={toggleSection}
-                        />
-                      </div>
-                    </div>
+                {/* Group selector column — narrow, scrollable */}
+                <div className="flex w-44 shrink-0 flex-col overflow-hidden border-l border-border/60 bg-slate-50/60">
+                  <p className="sticky top-0 shrink-0 border-b border-border/60 bg-slate-50/90 px-3 py-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground backdrop-blur">
+                    Surfaces
+                  </p>
+                  <div className="min-h-0 flex-1 overflow-y-auto">
+                    <SurfaceGroupSelector
+                      groups={faceGroups}
+                      selectedGroup={selectedGroup}
+                      onSelect={handleGroupSelect}
+                    />
                   </div>
                 </div>
+
               </section>
 
             </div>
