@@ -1,6 +1,6 @@
 // Toggle grid for building-level technologies (PV, battery, heat pump, EV charger).
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Sun, Battery, Thermometer, Plug } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -12,16 +12,30 @@ interface Technology {
   capacity: string | null;
 }
 
-const DEFAULT_TECHNOLOGIES: Technology[] = [
-  { id: 'solar_pv',   label: 'Solar PV',   Icon: Sun,         installed: false, capacity: null },
-  { id: 'battery',    label: 'Battery',    Icon: Battery,     installed: false, capacity: null },
-  { id: 'heat_pump',  label: 'Heat Pump',  Icon: Thermometer, installed: false, capacity: null },
-  { id: 'ev_charger', label: 'EV Charger', Icon: Plug,        installed: false, capacity: null },
+const ALL_TECHNOLOGIES: Omit<Technology, 'installed'>[] = [
+  { id: 'solar_pv',   label: 'Solar PV',   Icon: Sun,         capacity: null },
+  { id: 'battery',    label: 'Battery',    Icon: Battery,     capacity: null },
+  { id: 'heat_pump',  label: 'Heat Pump',  Icon: Thermometer, capacity: null },
+  { id: 'ev_charger', label: 'EV Charger', Icon: Plug,        capacity: null },
 ];
 
+function buildTechList(installedIds: string[]): Technology[] {
+  return ALL_TECHNOLOGIES.map((t) => ({ ...t, installed: installedIds.includes(t.id) }));
+}
+
+interface TechnologiesSectionProps {
+  /** IDs of technologies that are installed according to the model. */
+  installedTechIds?: string[];
+}
+
 /** Grid of technology cards. Each card toggles installed/not-installed on click. */
-export function TechnologiesSection() {
-  const [techs, setTechs] = useState<Technology[]>(DEFAULT_TECHNOLOGIES);
+export function TechnologiesSection({ installedTechIds = [] }: TechnologiesSectionProps) {
+  const [techs, setTechs] = useState<Technology[]>(() => buildTechList(installedTechIds));
+
+  // Re-sync when the model data changes (different building or updated config).
+  useEffect(() => {
+    setTechs(buildTechList(installedTechIds));
+  }, [installedTechIds]);
 
   const toggle = (id: string) =>
     setTechs((prev) => prev.map((t) => (t.id === id ? { ...t, installed: !t.installed } : t)));
