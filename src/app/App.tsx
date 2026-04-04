@@ -1,7 +1,11 @@
 import { ThemeProvider, createTheme } from '@mui/material';
 import { Box } from '@mui/material';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { BuildingConfigurator } from './components/BuildingConfigurator';
+import { adaptBuemFeature, extractFeaturesFromConfig, parseLoadProfileCsv } from './lib/buemAdapter';
+import type { BuildingState } from './lib/buemAdapter';
+import demoConfig from '../assets/data/demo_config.json';
+import demoLoadProfileCsv from '../assets/data/demo_load_profile.csv?raw';
 
 const theme = createTheme({
   palette: {
@@ -111,6 +115,20 @@ function MapCanvas({ onBuildingClick }: { onBuildingClick: () => void }) {
 export default function App() {
   const [showConfigurator, setShowConfigurator] = useState(false);
 
+  // Extract the first building feature from the EnerPlanET demo config once on mount.
+  // The demo CSV is used as fallback timeseries until a real model response is available.
+  const demoBuilding = useMemo<BuildingState | undefined>(() => {
+    try {
+      const features = extractFeaturesFromConfig(demoConfig);
+      if (features.length === 0) return undefined;
+      const state = adaptBuemFeature(features[0]);
+      const fallbackTimeseries = state.timeseries ?? parseLoadProfileCsv(demoLoadProfileCsv);
+      return { ...state, timeseries: fallbackTimeseries };
+    } catch {
+      return undefined;
+    }
+  }, []);
+
   return (
     <ThemeProvider theme={theme}>
       {/* Map canvas */}
@@ -131,7 +149,7 @@ export default function App() {
             right:    16,
             zIndex:   10,
           }}>
-            <BuildingConfigurator onClose={() => setShowConfigurator(false)} />
+            <BuildingConfigurator onClose={() => setShowConfigurator(false)} buildingData={demoBuilding} />
           </Box>
         )}
       </Box>
