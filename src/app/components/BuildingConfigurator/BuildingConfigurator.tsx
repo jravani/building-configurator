@@ -1,7 +1,7 @@
 // Main building configurator panel.
 // Owns all application state and handlers; delegates rendering to sub-components.
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
   Download, Upload, X, Building2, RotateCcw, Check, AlertTriangle,
@@ -11,12 +11,14 @@ import { ElementPanel } from './configure/ElementPanel';
 import { GeneralConfig } from './configure/GeneralConfig';
 import { BuildingVisualization } from './configure/BuildingVisualization';
 import type { BuildingElement } from './configure/BuildingVisualization';
-import { type EnergyTotals } from './overview/LoadProfileViewer';
+import { type EnergyTotals, type LoadDataPoint } from './overview/LoadProfileViewer';
 import { RoofConfig, DEFAULT_ROOF_CONFIG } from './configure/RoofConfigurator';
 import { SegmentedControl, SectionLabel, ConfiguratorStyles } from './shared/ui';
 import { cn } from '../../../lib/utils';
 
 import { DEFAULT_ELEMENTS, DEFAULT_GENERAL } from './shared/buildingDefaults';
+import type { BuildingState, ThermalSummary } from '../../lib/buemAdapter';
+import { formatCoordinates } from '../../lib/buemAdapter';
 import {
   SnapshotStatus,
   getThermalRating,
@@ -26,6 +28,42 @@ import {
 import { BuildingSnapshotAside } from './overview/BuildingSnapshotAside';
 import { EnergyEnvelopeColumn } from './overview/EnergyEnvelopeColumn';
 import { ElementList } from './configure/ElementList';
+
+// --- Energy totals helper -----------------------------------------------------
+
+/**
+ * Computes fixed annual energy totals from the full hourly timeseries.
+ * Falls back to the model thermal summary, then to placeholder dashes.
+ * Unit is always kWh — independent of chart resolution.
+ */
+function computeEnergyTotals(
+  timeseries: LoadDataPoint[] | null,
+  thermalSummary: ThermalSummary | null,
+): EnergyTotals {
+  if (timeseries && timeseries.length > 0) {
+    const fmt = (v: number) => {
+      const abs = Math.abs(v);
+      if (abs >= 100)  return abs.toFixed(0);
+      if (abs >= 1)    return abs.toFixed(1);
+      return abs.toFixed(2);
+    };
+    return {
+      heating:     fmt(timeseries.reduce((s, p) => s + p.heating,     0)),
+      electricity: fmt(timeseries.reduce((s, p) => s + p.electricity, 0)),
+      hotwater:    fmt(timeseries.reduce((s, p) => s + p.hotwater,    0)),
+      unit: 'kWh',
+    };
+  }
+  if (thermalSummary) {
+    return {
+      heating:     thermalSummary.heatingKwh.toFixed(0),
+      electricity: thermalSummary.electricityKwh.toFixed(0),
+      hotwater:    thermalSummary.coolingKwh.toFixed(0),
+      unit: 'kWh',
+    };
+  }
+  return { electricity: '—', heating: '—', hotwater: '—', unit: 'kWh' };
+}
 
 // --- Header icon button (local — only used in this file) ----------------------
 
@@ -48,14 +86,36 @@ function HeaderBtn({
 
 interface BuildingConfiguratorProps {
   onClose?: () => void;
+  /** Pre-parsed model data for a specific building. Falls back to hardcoded defaults when absent. */
+  buildingData?: BuildingState;
 }
 
 /** Full-screen panel for inspecting and editing a building's energy model configuration. */
-export function BuildingConfigurator({ onClose }: BuildingConfiguratorProps) {
+export function BuildingConfigurator({ onClose, buildingData }: BuildingConfiguratorProps) {
+  // Merge model identity fields into general config, keeping defaults for any missing fields.
+  const initialGeneral = buildingData ? {
+    ...DEFAULT_GENERAL,
+    buildingType:       buildingData.identity.buildingType,
+    constructionPeriod: buildingData.identity.constructionPeriod,
+    country:            buildingData.identity.country,
+    floorArea:          buildingData.identity.floorArea || DEFAULT_GENERAL.floorArea,
+    roomHeight:         buildingData.identity.roomHeight || DEFAULT_GENERAL.roomHeight,
+    storeys:            buildingData.identity.storeys    || DEFAULT_GENERAL.storeys,
+  } : DEFAULT_GENERAL;
+
+  const initialElements = buildingData && Object.keys(buildingData.envelope).length > 0
+    ? buildingData.envelope
+    : DEFAULT_ELEMENTS;
+
+  const initialEnergyTotals = computeEnergyTotals(
+    buildingData?.timeseries ?? null,
+    buildingData?.thermalSummary ?? null,
+  );
+
   const [workspaceView, setWorkspaceView] = useState<'overview' | 'configure'>('overview');
   const [mode,          setMode]          = useState<'basic' | 'expert'>('basic');
-  const [elements,      setElements]      = useState(DEFAULT_ELEMENTS);
-  const [general,       setGeneralRaw]    = useState(DEFAULT_GENERAL);
+  const [elements,      setElements]      = useState(initialElements);
+  const [general,       setGeneralRaw]    = useState(initialGeneral);
   const [roofConfig,    setRoofConfig]    = useState<RoofConfig>(DEFAULT_ROOF_CONFIG);
   const [selectedId,    setSelectedId]    = useState<string | null>(null);
   const [hoveredId,     setHoveredId]     = useState<string | null>(null);
@@ -65,11 +125,44 @@ export function BuildingConfigurator({ onClose }: BuildingConfiguratorProps) {
     ventilation: false, internal: false, thermal: false, solver: false,
   });
 
-  const [savedState,      setSavedState]      = useState({ elements: DEFAULT_ELEMENTS, general: DEFAULT_GENERAL, roofConfig: DEFAULT_ROOF_CONFIG });
+  const [savedState,      setSavedState]      = useState({ elements: initialElements, general: initialGeneral, roofConfig: DEFAULT_ROOF_CONFIG });
   const [showCloseDialog, setShowCloseDialog] = useState(false);
-  const [energyTotals,    setEnergyTotals]    = useState<EnergyTotals>({ electricity: '—', heating: '—', hotwater: '—', unit: 'kWh/day' });
+  const [energyTotals,    setEnergyTotals]    = useState<EnergyTotals>(initialEnergyTotals);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync all model-derived state whenever buildingData prop changes (e.g. different building
+  // selected, or the source JSON is updated during development).
+  useEffect(() => {
+    if (!buildingData) return;
+
+    const nextElements = Object.keys(buildingData.envelope).length > 0
+      ? buildingData.envelope
+      : DEFAULT_ELEMENTS;
+
+    const nextGeneral = {
+      ...DEFAULT_GENERAL,
+      buildingType:       buildingData.identity.buildingType,
+      constructionPeriod: buildingData.identity.constructionPeriod,
+      country:            buildingData.identity.country,
+      floorArea:          buildingData.identity.floorArea || DEFAULT_GENERAL.floorArea,
+      roomHeight:         buildingData.identity.roomHeight || DEFAULT_GENERAL.roomHeight,
+      storeys:            buildingData.identity.storeys    || DEFAULT_GENERAL.storeys,
+    };
+
+    const nextTotals = computeEnergyTotals(
+      buildingData.timeseries ?? null,
+      buildingData.thermalSummary ?? null,
+    );
+
+    setElements(nextElements);
+    setGeneralRaw(nextGeneral);
+    setRoofConfig(DEFAULT_ROOF_CONFIG);
+    setSavedState({ elements: nextElements, general: nextGeneral, roofConfig: DEFAULT_ROOF_CONFIG });
+    setEnergyTotals(nextTotals);
+    setSelectedId(null);
+    setUploadError(null);
+  }, [buildingData]);
 
   const hasUnsavedChanges = JSON.stringify({ elements, general, roofConfig }) !== JSON.stringify(savedState);
 
@@ -90,8 +183,8 @@ export function BuildingConfigurator({ onClose }: BuildingConfiguratorProps) {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
 
   const handleReset = () => {
-    setElements(DEFAULT_ELEMENTS);
-    setGeneralRaw(DEFAULT_GENERAL);
+    setElements(initialElements);
+    setGeneralRaw(initialGeneral);
     setRoofConfig(DEFAULT_ROOF_CONFIG);
     setSelectedId(null);
     setUploadError(null);
@@ -142,6 +235,11 @@ export function BuildingConfigurator({ onClose }: BuildingConfiguratorProps) {
 
   // --- Derived ---------------------------------------------------------------
 
+  const identity = buildingData?.identity;
+  const buildingLabel = identity?.label ?? 'Building';
+  const buildingType  = identity?.buildingType ?? general.buildingType;
+  const coordinates: [number, number] = identity?.coordinates ?? [11.5820, 48.1351];
+
   const totalArea   = Object.values(elements).reduce((sum, e) => sum + (e.area || 0), 0);
   const avgUValue   = totalArea > 0
     ? Object.values(elements).reduce((sum, e) => sum + e.uValue * e.area, 0) / totalArea
@@ -162,8 +260,8 @@ export function BuildingConfigurator({ onClose }: BuildingConfiguratorProps) {
             <Building2 className="size-4 text-primary-foreground" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-foreground leading-tight">Building 3 · Multi Family House</p>
-            <p className="text-[11px] text-muted-foreground leading-tight">48.1351° N, 11.5820° E</p>
+            <p className="text-sm font-semibold text-foreground leading-tight">{buildingLabel} · {buildingType}</p>
+            <p className="text-[11px] text-muted-foreground leading-tight">{formatCoordinates(coordinates[0], coordinates[1])}</p>
           </div>
         </div>
 
@@ -196,23 +294,26 @@ export function BuildingConfigurator({ onClose }: BuildingConfiguratorProps) {
             // ── Overview layout: snapshot sidebar + energy/envelope column ──
             <div className="grid h-full min-h-0 grid-cols-[430px_minmax(0,1fr)] overflow-hidden">
               <BuildingSnapshotAside
-                mode={mode}
                 energyTotals={energyTotals}
                 snapshotRows={snapshotRows}
                 thermalRating={thermalRating}
                 avgUValue={avgUValue}
-                thermalEfficiencyStatus={thermalEfficiencyStatus}
+                installedTechIds={buildingData?.installedTechIds ?? []}
+                onUpdateParam={setGen}
               />
               <EnergyEnvelopeColumn
                 uploadError={uploadError}
                 onClearError={() => setUploadError(null)}
-                onTotalsChange={setEnergyTotals}
                 elements={elements}
                 selectedId={selectedId}
                 onSelectElement={handleSelectElement}
                 onUpdateElement={updateElement}
                 roofConfig={roofConfig}
                 isActive={workspaceView === 'overview'}
+                buildingId={buildingLabel}
+                initialTimeseries={buildingData?.timeseries ?? null}
+                onSwitchToConfigure={handleSelectElement}
+                mode={mode}
               />
             </div>
           ) : (
