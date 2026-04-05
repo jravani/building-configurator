@@ -5,6 +5,8 @@
 import { useMemo, useState } from 'react'; // useState kept for hoveredGroup
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
+export type BuildingElementSource = 'city' | 'default' | 'custom';
+
 export interface BuildingElement {
   id: string;
   label: string;
@@ -14,6 +16,8 @@ export interface BuildingElement {
   gValue: number | null;
   tilt: number;
   azimuth: number;
+  source?: BuildingElementSource;
+  customMode?: boolean;
 }
 
 export interface SvgElementDef {
@@ -134,6 +138,33 @@ export function elementToGroup(el: BuildingElement): FaceGroup {
   if (el.type === 'roof')  return { type: 'roof',  face: 'roof'  };
   if (el.type === 'floor') return { type: 'floor', face: 'floor' };
   return { type: el.type, face: faceFromAzimuth(el.azimuth) };
+}
+
+/** Ensures all elements carry explicit source and edit-mode metadata. */
+export function normalizeElementRecord(
+  elements: Record<string, BuildingElement>,
+  fallbackSource: BuildingElementSource,
+): Record<string, BuildingElement> {
+  return Object.fromEntries(
+    Object.entries(elements).map(([id, el]) => [
+      id,
+      {
+        ...el,
+        source: el.source ?? fallbackSource,
+        customMode: el.customMode ?? (el.source === 'custom'),
+      },
+    ]),
+  );
+}
+
+/** Source-derived elements are read-only until promoted into custom mode. */
+export function isElementEditable(el: BuildingElement): boolean {
+  return el.source === 'custom' || !!el.customMode;
+}
+
+/** Returns true when the element is either custom-created or custom-overridden. */
+export function isUserDefinedElement(el: BuildingElement): boolean {
+  return el.source === 'custom' || !!el.customMode;
 }
 
 const FACE_LABELS: Record<string, string> = {
