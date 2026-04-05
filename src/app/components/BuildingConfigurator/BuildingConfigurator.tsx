@@ -4,13 +4,17 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
-  Download, Upload, X, Building2, RotateCcw, Check, AlertTriangle,
+  Download, Upload, X, Building2, RotateCcw, Check, AlertTriangle, Plus,
   Flame, Zap, Droplets, Gauge,
 } from 'lucide-react';
 
 import { BuildingVisualization, VIEW_ORDER } from './configure/BuildingVisualization';
 import type { BuildingElement, FaceGroup } from './configure/BuildingVisualization';
-import { elementToGroup } from './configure/BuildingVisualization';
+import {
+  elementToGroup,
+  isElementEditable,
+  normalizeElementRecord,
+} from './configure/BuildingVisualization';
 import { type EnergyTotals, type LoadDataPoint } from './overview/LoadProfileViewer';
 import { RoofConfig, DEFAULT_ROOF_CONFIG } from './configure/RoofConfigurator';
 import { SegmentedControl, ConfiguratorStyles } from './shared/ui';
@@ -27,6 +31,65 @@ import { BuildingSnapshotAside } from './overview/BuildingSnapshotAside';
 import { EnergyEnvelopeColumn } from './overview/EnergyEnvelopeColumn';
 import { SurfaceGroupSelector } from './configure/SurfaceGroupSelector';
 import { SurfaceGroupEditor } from './configure/SurfaceGroupEditor';
+
+const SURFACE_DEFAULTS: Record<BuildingElement['type'], Omit<BuildingElement, 'id' | 'label'>> = {
+  wall:   { type: 'wall',   area: 12, uValue: 0.24, gValue: null, tilt: 90, azimuth: 180, source: 'custom', customMode: true },
+  window: { type: 'window', area: 2.4, uValue: 1.3,  gValue: 0.6,  tilt: 90, azimuth: 180, source: 'custom', customMode: true },
+  door:   { type: 'door',   area: 2.1, uValue: 1.8,  gValue: null, tilt: 90, azimuth: 180, source: 'custom', customMode: true },
+  roof:   { type: 'roof',   area: 18, uValue: 0.18, gValue: null, tilt: 35, azimuth: 180, source: 'custom', customMode: true },
+  floor:  { type: 'floor',  area: 18, uValue: 0.30, gValue: null, tilt: 0,  azimuth: 0,   source: 'custom', customMode: true },
+};
+
+function surfaceTypeLabel(type: BuildingElement['type']): string {
+  if (type === 'roof') return 'Roof';
+  if (type === 'floor') return 'Floor';
+  if (type === 'door') return 'Door';
+  if (type === 'window') return 'Window';
+  return 'Wall';
+}
+
+function buildSurfaceLabel(type: BuildingElement['type'], elements: Record<string, BuildingElement>): string {
+  const next = Object.values(elements).filter((el) => el.type === type).length + 1;
+  return `Custom ${surfaceTypeLabel(type)} ${next}`;
+}
+
+function buildSurfaceId(type: BuildingElement['type'], elements: Record<string, BuildingElement>): string {
+  const base = `custom_${type}`;
+  let idx = 1;
+  while (elements[`${base}_${idx}`]) idx += 1;
+  return `${base}_${idx}`;
+}
+
+function buildNewSurface(type: BuildingElement['type'], elements: Record<string, BuildingElement>): BuildingElement {
+  const seed = Object.values(elements).find((el) => el.type === type && isElementEditable(el))
+    ?? Object.values(elements).find((el) => el.type === type)
+    ?? null;
+
+  return {
+    id: buildSurfaceId(type, elements),
+    label: buildSurfaceLabel(type, elements),
+    ...(seed
+      ? {
+          type,
+          area: seed.area,
+          uValue: seed.uValue,
+          gValue: seed.gValue,
+          tilt: seed.tilt,
+          azimuth: seed.azimuth,
+          source: 'custom' as const,
+          customMode: true,
+        }
+      : SURFACE_DEFAULTS[type]),
+  };
+}
+
+const NEW_SURFACE_OPTIONS: Array<{ type: BuildingElement['type']; label: string; detail: string }> = [
+  { type: 'wall', label: 'Wall', detail: 'Vertical opaque surface' },
+  { type: 'window', label: 'Window', detail: 'Transparent facade opening' },
+  { type: 'door', label: 'Door', detail: 'Opaque entrance opening' },
+  { type: 'roof', label: 'Roof', detail: 'Top envelope surface' },
+  { type: 'floor', label: 'Floor', detail: 'Ground-contact surface' },
+];
 
 // --- Energy totals helper -----------------------------------------------------
 
@@ -110,9 +173,12 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
     storeys:            buildingData.identity.storeys    || DEFAULT_GENERAL.storeys,
   } : DEFAULT_GENERAL;
 
-  const initialElements = buildingData && Object.keys(buildingData.envelope).length > 0
-    ? buildingData.envelope
-    : DEFAULT_ELEMENTS;
+  const initialElements = normalizeElementRecord(
+    buildingData && Object.keys(buildingData.envelope).length > 0
+      ? buildingData.envelope
+      : DEFAULT_ELEMENTS,
+    buildingData && Object.keys(buildingData.envelope).length > 0 ? 'city' : 'default',
+  );
 
   const initialEnergyTotals = computeEnergyTotals(
     buildingData?.timeseries ?? null,
@@ -127,6 +193,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
   const [selectedId,    setSelectedId]    = useState<string | null>(null);
   const [vizViewIndex,  setVizViewIndex]  = useState(0);
   const [uploadError,   setUploadError]   = useState<string | null>(null);
+  const [showCreateSurfaceMenu, setShowCreateSurfaceMenu] = useState(false);
 
   const [savedState,      setSavedState]      = useState({ elements: initialElements, general: initialGeneral, roofConfig: DEFAULT_ROOF_CONFIG });
   const [showCloseDialog, setShowCloseDialog] = useState(false);
@@ -139,9 +206,12 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
   useEffect(() => {
     if (!buildingData) return;
 
-    const nextElements = Object.keys(buildingData.envelope).length > 0
-      ? buildingData.envelope
-      : DEFAULT_ELEMENTS;
+    const nextElements = normalizeElementRecord(
+      Object.keys(buildingData.envelope).length > 0
+        ? buildingData.envelope
+        : DEFAULT_ELEMENTS,
+      Object.keys(buildingData.envelope).length > 0 ? 'city' : 'default',
+    );
 
     const nextGeneral = {
       ...DEFAULT_GENERAL,
@@ -165,6 +235,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
     setEnergyTotals(nextTotals);
     setSelectedId(null);
     setUploadError(null);
+    setShowCreateSurfaceMenu(false);
   }, [buildingData]);
 
   const hasUnsavedChanges = JSON.stringify({ elements, general, roofConfig }) !== JSON.stringify(savedState);
@@ -172,7 +243,32 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
   // --- Handlers ---------------------------------------------------------------
 
   const updateElement = (id: string, patch: Partial<BuildingElement>) =>
-    setElements((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+    setElements((prev) => {
+      const current = prev[id];
+      if (!current || !isElementEditable(current)) return prev;
+      return { ...prev, [id]: { ...current, ...patch } };
+    });
+
+  const enableCustomMode = (id: string) =>
+    setElements((prev) => {
+      const current = prev[id];
+      if (!current || isElementEditable(current)) return prev;
+      return { ...prev, [id]: { ...current, customMode: true } };
+    });
+
+  const createSurface = (type: BuildingElement['type']) => {
+    const next = buildNewSurface(type, elements);
+    setElements((prev) => ({ ...prev, [next.id]: next }));
+    setSelectedId(next.id);
+    setWorkspaceView('configure');
+    setShowCreateSurfaceMenu(false);
+
+    const group = elementToGroup(next);
+    if (group.face !== 'roof' && group.face !== 'floor') {
+      const idx = VIEW_ORDER.findIndex((v) => v.frontWallId === group.face);
+      if (idx !== -1) setVizViewIndex(idx);
+    }
+  };
 
   const handleSelectElement = (id: string) => {
     setSelectedId(id);
@@ -218,6 +314,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
     setSelectedId(null);
     setVizViewIndex(0);
     setUploadError(null);
+    setShowCreateSurfaceMenu(false);
   };
 
   const handleApply = () => {
@@ -252,7 +349,12 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
     reader.onload = (ev) => {
       try {
         const cfg = JSON.parse(ev.target?.result as string);
-        if (cfg.elements)      setElements({ ...DEFAULT_ELEMENTS, ...cfg.elements });
+        if (cfg.elements) {
+          setElements(normalizeElementRecord(
+            { ...DEFAULT_ELEMENTS, ...cfg.elements },
+            buildingData && Object.keys(buildingData.envelope).length > 0 ? 'city' : 'default',
+          ));
+        }
         if (cfg.generalConfig) setGeneralRaw({ ...DEFAULT_GENERAL, ...cfg.generalConfig });
         if (cfg.roofConfig)    setRoofConfig(cfg.roofConfig);
       } catch {
@@ -350,6 +452,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
                 selectedId={selectedId}
                 onSelectElement={handleSelectElement}
                 onUpdateElement={updateElement}
+                onEnableCustomMode={enableCustomMode}
                 roofConfig={roofConfig}
                 isActive={workspaceView === 'overview'}
                 buildingId={buildingLabel}
@@ -452,14 +555,42 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
                     selectedElementId={selectedId}
                     elements={elements}
                     onUpdateElement={updateElement}
+                    onEnableCustomMode={enableCustomMode}
                   />
                 </div>
 
                 {/* Group selector column — narrow, scrollable */}
                 <div className="flex w-44 shrink-0 flex-col overflow-hidden border-l border-border/60 bg-slate-50/60">
-                  <p className="sticky top-0 shrink-0 border-b border-border/60 bg-slate-50/90 px-3 py-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground backdrop-blur">
-                    Surfaces
-                  </p>
+                  <div className="sticky top-0 z-10 shrink-0 border-b border-border/60 bg-slate-50/95 backdrop-blur">
+                    <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                        Surfaces
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setShowCreateSurfaceMenu((prev) => !prev)}
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                      >
+                        <Plus className="size-3" />
+                        New
+                      </button>
+                    </div>
+                    {showCreateSurfaceMenu && (
+                      <div className="grid gap-1 border-t border-border/60 px-2 py-2">
+                        {NEW_SURFACE_OPTIONS.map((option) => (
+                          <button
+                            key={option.type}
+                            type="button"
+                            onClick={() => createSurface(option.type)}
+                            className="rounded-md border border-slate-200 bg-white px-2.5 py-2 text-left shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
+                          >
+                            <p className="text-[10px] font-semibold text-slate-700">{option.label}</p>
+                            <p className="mt-0.5 text-[9px] leading-snug text-slate-500">{option.detail}</p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <div className="min-h-0 flex-1 overflow-y-auto">
                     <SurfaceGroupSelector
                       elements={elements}
