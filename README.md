@@ -8,7 +8,7 @@ Run `npm i` to install the dependencies.
 
 Run `npm run dev` to start the development server.
 
-## Test version
+## Try it out
 
 This react component has been deployed on Vercel for testing, try it out [here](https://building-configurator-gui.vercel.app/).
 
