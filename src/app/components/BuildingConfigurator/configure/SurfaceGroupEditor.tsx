@@ -4,10 +4,10 @@
 // exclusively to the selected element, not to the whole face group.
 
 import { useState, useEffect, useRef } from 'react';
-import { ChevronUp, ChevronDown, Info, Layers, AlertTriangle } from 'lucide-react';
+import { ChevronUp, ChevronDown, Info, Layers, AlertTriangle, Lock, Wand2 } from 'lucide-react';
 import { ELEMENT_DOTS } from '../shared/ui';
 import type { BuildingElement } from './BuildingVisualization';
-import { elementToGroup } from './BuildingVisualization';
+import { elementToGroup, isElementEditable, isUserDefinedElement } from './BuildingVisualization';
 
 // ─── Exported patch type (kept for any callers that still reference it) ────────
 
@@ -71,11 +71,12 @@ interface SpinnerProps {
   max?: number;
   step?: number;
   narrow?: boolean;
+  disabled?: boolean;
   onChange: (v: number) => void;
 }
 
 /** Large bold number input with integrated up/down stepper buttons and a ° badge. */
-function NumberSpinner({ value, min = 0, max = 360, step = 1, narrow = false, onChange }: SpinnerProps) {
+function NumberSpinner({ value, min = 0, max = 360, step = 1, narrow = false, disabled = false, onChange }: SpinnerProps) {
   const [draft, setDraft] = useState(String(Math.round(value)));
 
   useEffect(() => { setDraft(String(Math.round(value))); }, [value]);
@@ -90,21 +91,21 @@ function NumberSpinner({ value, min = 0, max = 360, step = 1, narrow = false, on
 
   return (
     <div className="flex items-center gap-1.5">
-      <div className={`flex items-center overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${narrow ? 'w-[80px]' : 'w-[96px]'}`}>
+      <div className={`flex items-center overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${narrow ? 'w-[80px]' : 'w-[96px]'} ${disabled ? 'opacity-50' : ''}`}>
         <input
-          type="number" min={min} max={max} value={draft}
+          type="number" min={min} max={max} value={draft} disabled={disabled}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }}
           className="min-w-0 flex-1 bg-transparent px-2 py-2 text-right text-xl font-bold text-slate-800 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         />
         <div className="flex shrink-0 flex-col border-l border-slate-200">
-          <button type="button" onClick={() => onChange(clamp(Math.round(value) + step))}
-            className="flex h-6 w-7 cursor-pointer items-center justify-center border-b border-slate-200 bg-slate-800 text-white transition-colors hover:bg-slate-700">
+          <button type="button" disabled={disabled} onClick={() => onChange(clamp(Math.round(value) + step))}
+            className="flex h-6 w-7 items-center justify-center border-b border-slate-200 bg-slate-800 text-white transition-colors enabled:cursor-pointer enabled:hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400">
             <ChevronUp className="size-3" />
           </button>
-          <button type="button" onClick={() => onChange(clamp(Math.round(value) - step))}
-            className="flex h-6 w-7 cursor-pointer items-center justify-center bg-slate-800 text-white transition-colors hover:bg-slate-700">
+          <button type="button" disabled={disabled} onClick={() => onChange(clamp(Math.round(value) - step))}
+            className="flex h-6 w-7 items-center justify-center bg-slate-800 text-white transition-colors enabled:cursor-pointer enabled:hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400">
             <ChevronDown className="size-3" />
           </button>
         </div>
@@ -117,7 +118,7 @@ function NumberSpinner({ value, min = 0, max = 360, step = 1, narrow = false, on
 // ─── Area spinner ─────────────────────────────────────────────────────────────
 
 /** Number spinner for area (m²) with one decimal place. */
-function AreaSpinner({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+function AreaSpinner({ value, disabled = false, onChange }: { value: number; disabled?: boolean; onChange: (v: number) => void }) {
   const [draft, setDraft] = useState(value.toFixed(1));
 
   useEffect(() => { setDraft(value.toFixed(1)); }, [value]);
@@ -130,21 +131,21 @@ function AreaSpinner({ value, onChange }: { value: number; onChange: (v: number)
 
   return (
     <div className="flex items-center gap-1.5">
-      <div className="flex flex-1 items-center overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className={`flex flex-1 items-center overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${disabled ? 'opacity-50' : ''}`}>
         <input
-          type="number" step={0.1} min={0.1} value={draft}
+          type="number" step={0.1} min={0.1} value={draft} disabled={disabled}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }}
           className="min-w-0 flex-1 bg-transparent px-3 py-2 text-right text-xl font-bold text-slate-800 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         />
         <div className="flex shrink-0 flex-col border-l border-slate-200">
-          <button type="button" onClick={() => onChange(Math.max(0.1, parseFloat(draft || '0') + 1))}
-            className="flex h-6 w-7 cursor-pointer items-center justify-center border-b border-slate-200 bg-slate-800 text-white transition-colors hover:bg-slate-700">
+          <button type="button" disabled={disabled} onClick={() => onChange(Math.max(0.1, parseFloat(draft || '0') + 1))}
+            className="flex h-6 w-7 items-center justify-center border-b border-slate-200 bg-slate-800 text-white transition-colors enabled:cursor-pointer enabled:hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400">
             <ChevronUp className="size-3" />
           </button>
-          <button type="button" onClick={() => onChange(Math.max(0.1, parseFloat(draft || '0') - 1))}
-            className="flex h-6 w-7 cursor-pointer items-center justify-center bg-slate-800 text-white transition-colors hover:bg-slate-700">
+          <button type="button" disabled={disabled} onClick={() => onChange(Math.max(0.1, parseFloat(draft || '0') - 1))}
+            className="flex h-6 w-7 items-center justify-center bg-slate-800 text-white transition-colors enabled:cursor-pointer enabled:hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400">
             <ChevronDown className="size-3" />
           </button>
         </div>
@@ -174,7 +175,7 @@ function tiltLabel(tilt: number): string {
 
 /** Interactive SVG showing a tilted surface. Click or drag to change the angle.
  *  Snaps to 5° increments. Step marks at every 15° for orientation. */
-function TiltVisual({ tilt, onChange }: { tilt: number; onChange: (v: number) => void }) {
+function TiltVisual({ tilt, disabled = false, onChange }: { tilt: number; disabled?: boolean; onChange: (v: number) => void }) {
   const rad   = (tilt * Math.PI) / 180;
   const ex    = TILT_PX + TILT_L     * Math.cos(rad);
   const ey    = TILT_PY - TILT_L     * Math.sin(rad);
@@ -215,10 +216,10 @@ function TiltVisual({ tilt, onChange }: { tilt: number; onChange: (v: number) =>
     <svg
       ref={svgRef}
       width="80" height="80" viewBox="0 0 80 80"
-      className="shrink-0 cursor-crosshair select-none"
-      onMouseDown={(e) => { dragging.current = true; onChange(angleFromClient(e.clientX, e.clientY)); }}
-      onMouseMove={(e) => { if (dragging.current) onChange(angleFromClient(e.clientX, e.clientY)); }}
-      onMouseUp={(e) => { dragging.current = false; onChange(angleFromClient(e.clientX, e.clientY)); }}
+      className={`shrink-0 select-none ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-crosshair'}`}
+      onMouseDown={(e) => { if (disabled) return; dragging.current = true; onChange(angleFromClient(e.clientX, e.clientY)); }}
+      onMouseMove={(e) => { if (!disabled && dragging.current) onChange(angleFromClient(e.clientX, e.clientY)); }}
+      onMouseUp={(e) => { if (disabled) return; dragging.current = false; onChange(angleFromClient(e.clientX, e.clientY)); }}
     >
       {/* Ground line */}
       <line x1={4} y1={TILT_PY} x2={76} y2={TILT_PY} stroke="#cbd5e1" strokeWidth={1.5} strokeLinecap="round" />
@@ -268,7 +269,7 @@ function TiltVisual({ tilt, onChange }: { tilt: number; onChange: (v: number) =>
 }
 
 /** Tilt control: interactive SVG figure + spinner. No slider — click or drag the figure. */
-function TiltControl({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+function TiltControl({ value, disabled = false, onChange }: { value: number; disabled?: boolean; onChange: (v: number) => void }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-1">
@@ -276,9 +277,9 @@ function TiltControl({ value, onChange }: { value: number; onChange: (v: number)
         <Info className="size-3 text-slate-400" />
       </div>
       <div className="flex items-center gap-5">
-        <TiltVisual tilt={value} onChange={onChange} />
+        <TiltVisual tilt={value} disabled={disabled} onChange={onChange} />
         <div className="flex flex-col gap-1.5">
-          <NumberSpinner value={value} min={0} max={90} onChange={onChange} />
+          <NumberSpinner value={value} min={0} max={90} disabled={disabled} onChange={onChange} />
           <p className="text-[10px] text-slate-500">{tiltLabel(value)}</p>
         </div>
       </div>
@@ -313,7 +314,7 @@ const COMPASS_DIRS = [
 ] as const;
 
 /** Interactive SVG compass rose — click or drag to set azimuth, snaps to 45° steps. */
-function CompassRose({ azimuth, onChange }: { azimuth: number; onChange: (v: number) => void }) {
+function CompassRose({ azimuth, disabled = false, onChange }: { azimuth: number; disabled?: boolean; onChange: (v: number) => void }) {
   const R_NEEDLE = 28; const TAIL = 10;
   const rad   = (azimuth * Math.PI) / 180;
   const tipX  = CX_C + R_NEEDLE * Math.sin(rad);
@@ -346,10 +347,10 @@ function CompassRose({ azimuth, onChange }: { azimuth: number; onChange: (v: num
   return (
     <svg
       width="120" height="120" viewBox="0 0 120 120"
-      className="shrink-0 cursor-pointer select-none"
-      onMouseDown={(e) => { dragging.current = true; onChange(angleFromEvent(e)); }}
-      onMouseMove={(e) => { if (dragging.current) onChange(angleFromEvent(e)); }}
-      onMouseUp={(e) => { dragging.current = false; onChange(angleFromEvent(e)); }}
+      className={`shrink-0 select-none ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+      onMouseDown={(e) => { if (disabled) return; dragging.current = true; onChange(angleFromEvent(e)); }}
+      onMouseMove={(e) => { if (!disabled && dragging.current) onChange(angleFromEvent(e)); }}
+      onMouseUp={(e) => { if (disabled) return; dragging.current = false; onChange(angleFromEvent(e)); }}
     >
       {/* Outer ring */}
       <circle cx={CX_C} cy={CY_C} r={R_RING} fill="white" stroke="#e2e8f0" strokeWidth={1.5} />
@@ -393,7 +394,7 @@ function CompassRose({ azimuth, onChange }: { azimuth: number; onChange: (v: num
 }
 
 /** Azimuth control: interactive compass rose + number spinner + direction label. */
-function AzimuthControl({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+function AzimuthControl({ value, disabled = false, onChange }: { value: number; disabled?: boolean; onChange: (v: number) => void }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-1">
@@ -401,9 +402,9 @@ function AzimuthControl({ value, onChange }: { value: number; onChange: (v: numb
         <Info className="size-3 text-slate-400" />
       </div>
       <div className="flex items-center gap-10">
-        <CompassRose azimuth={value} onChange={onChange} />
+        <CompassRose azimuth={value} disabled={disabled} onChange={onChange} />
         <div className="flex flex-col gap-1.5">
-          <NumberSpinner value={value} min={0} max={359} onChange={onChange} />
+          <NumberSpinner value={value} min={0} max={359} disabled={disabled} onChange={onChange} />
           <p className="text-[10px] text-slate-500">{azimuthDirectionLabel(value)}</p>
         </div>
       </div>
@@ -414,7 +415,7 @@ function AzimuthControl({ value, onChange }: { value: number; onChange: (v: numb
 // ─── U-value field ────────────────────────────────────────────────────────────
 
 /** Inline click-to-edit U-value row. */
-function UValueField({ value, onSave }: { value: number; onSave: (v: number) => void }) {
+function UValueField({ value, disabled = false, onSave }: { value: number; disabled?: boolean; onSave: (v: number) => void }) {
   const [editing, setEditing] = useState(false);
   const [draft,   setDraft]   = useState(value.toFixed(2));
 
@@ -429,7 +430,7 @@ function UValueField({ value, onSave }: { value: number; onSave: (v: number) => 
   return (
     <div className="group/row flex items-center justify-between gap-3">
       <span className="text-[11px] text-slate-500">U-value</span>
-      {editing ? (
+      {editing && !disabled ? (
         <div className="flex items-center gap-1.5">
           <input
             type="number" step="0.01" min="0.01" autoFocus
@@ -445,14 +446,27 @@ function UValueField({ value, onSave }: { value: number; onSave: (v: number) => 
           <span className="text-[10px] text-slate-400">W/m²K</span>
         </div>
       ) : (
-        <button type="button" onClick={() => setEditing(true)}
-          className="flex cursor-pointer items-baseline gap-1 rounded px-1.5 py-0.5 hover:bg-slate-100 group-hover/row:ring-1 group-hover/row:ring-slate-200">
-          <span className="text-[12px] font-semibold text-slate-800">{value.toFixed(2)}</span>
-          <span className="text-[10px] text-slate-400">W/m²K</span>
-        </button>
+        disabled ? (
+          <div className="flex items-baseline gap-1 rounded px-1.5 py-0.5 opacity-50">
+            <span className="text-[12px] font-semibold text-slate-800">{value.toFixed(2)}</span>
+            <span className="text-[10px] text-slate-400">W/m²K</span>
+          </div>
+        ) : (
+          <button type="button" onClick={() => setEditing(true)}
+            className="flex cursor-pointer items-baseline gap-1 rounded px-1.5 py-0.5 hover:bg-slate-100 group-hover/row:ring-1 group-hover/row:ring-slate-200">
+            <span className="text-[12px] font-semibold text-slate-800">{value.toFixed(2)}</span>
+            <span className="text-[10px] text-slate-400">W/m²K</span>
+          </button>
+        )
       )}
     </div>
   );
+}
+
+function sourceMessage(el: BuildingElement): string {
+  if (el.source === 'city') return 'Imported from 3D city data. Enable custom mode to override geometry or thermal values.';
+  if (el.source === 'default') return 'Loaded from the default open-data estimate. Enable custom mode to override this baseline.';
+  return 'User-defined surface. Geometry and thermal values are fully editable.';
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -462,11 +476,12 @@ interface SurfaceGroupEditorProps {
   selectedElementId: string | null;
   elements: Record<string, BuildingElement>;
   onUpdateElement: (id: string, patch: Partial<BuildingElement>) => void;
+  onEnableCustomMode: (id: string) => void;
 }
 
 /** Shows and edits surface parameters for the single selected building element.
  *  Direction-group area is displayed in the header for context only. */
-export function SurfaceGroupEditor({ selectedElementId, elements, onUpdateElement }: SurfaceGroupEditorProps) {
+export function SurfaceGroupEditor({ selectedElementId, elements, onUpdateElement, onEnableCustomMode }: SurfaceGroupEditorProps) {
   const el = selectedElementId ? elements[selectedElementId] : null;
 
   if (!el) {
@@ -478,7 +493,7 @@ export function SurfaceGroupEditor({ selectedElementId, elements, onUpdateElemen
         <div>
           <p className="text-sm font-semibold text-slate-600">No surface selected</p>
           <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
-            Click a face in the 3D preview or pick a surface from the list on the right.
+            Click a face in the 3D preview, pick a surface from the list on the right, or use the fixed New button in the Surfaces panel.
           </p>
         </div>
       </div>
@@ -490,6 +505,9 @@ export function SurfaceGroupEditor({ selectedElementId, elements, onUpdateElemen
   const label             = groupLabel(el);
   const warnings          = getWarnings(el);
   const save              = (patch: Partial<BuildingElement>) => onUpdateElement(selectedElementId!, patch);
+  const editable          = isElementEditable(el);
+  const userDefined       = isUserDefinedElement(el);
+  const isImported        = el.source === 'city' || el.source === 'default';
 
   return (
     <div className="flex h-full flex-col overflow-y-auto p-5">
@@ -501,7 +519,20 @@ export function SurfaceGroupEditor({ selectedElementId, elements, onUpdateElemen
           <span className="size-3.5 rounded-full" style={{ backgroundColor: dotColor }} />
         </div>
         <div>
-          <p className="text-base font-bold text-slate-800">{el.label}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-base font-bold text-slate-800">{el.label}</p>
+            {userDefined && (
+              <span className="rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                User defined
+              </span>
+            )}
+            {isImported && !editable && (
+              <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                <Lock className="size-3" />
+                Read only
+              </span>
+            )}
+          </div>
           <p className="text-[11px] text-muted-foreground">
             {el.area.toFixed(1)} m²
             {count > 1 && (
@@ -513,6 +544,27 @@ export function SurfaceGroupEditor({ selectedElementId, elements, onUpdateElemen
         </div>
       </div>
 
+      <div className="mb-4 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold text-slate-700">
+              {editable ? 'Custom surface configuration is active.' : 'Source-derived geometry is locked.'}
+            </p>
+            <p className="mt-1 text-[10px] leading-snug text-slate-500">{sourceMessage(el)}</p>
+          </div>
+          {!editable && (
+            <button
+              type="button"
+              onClick={() => onEnableCustomMode(el.id)}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-[11px] font-semibold text-white transition-colors hover:bg-slate-800"
+            >
+              <Wand2 className="size-3.5" />
+              Enable custom mode
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Geometry card */}
       <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-4 shadow-sm">
         <p className="mb-4 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">
@@ -521,9 +573,9 @@ export function SurfaceGroupEditor({ selectedElementId, elements, onUpdateElemen
 
         {/* Row 1 — Tilt | Azimuth */}
         <div className="grid grid-cols-2 gap-4">
-          <TiltControl value={el.tilt} onChange={(v) => save({ tilt: v })} />
+          <TiltControl value={el.tilt} disabled={!editable} onChange={(v) => save({ tilt: v })} />
           <div className="border-l border-slate-200 pl-4">
-            <AzimuthControl value={el.azimuth} onChange={(v) => save({ azimuth: v })} />
+            <AzimuthControl value={el.azimuth} disabled={!editable} onChange={(v) => save({ azimuth: v })} />
           </div>
         </div>
 
@@ -531,7 +583,7 @@ export function SurfaceGroupEditor({ selectedElementId, elements, onUpdateElemen
         <div className="mt-4 grid grid-cols-2 gap-4 border-t border-slate-200 pt-4">
           <div className="flex flex-col gap-2">
             <span className="text-[12px] font-semibold text-slate-700">Area</span>
-            <AreaSpinner value={el.area} onChange={(v) => save({ area: v })} />
+            <AreaSpinner value={el.area} disabled={!editable} onChange={(v) => save({ area: v })} />
           </div>
           <div className="border-l border-slate-200 pl-4 opacity-40">
             <span className="text-[11px] text-slate-400">More parameters coming soon</span>
@@ -556,7 +608,7 @@ export function SurfaceGroupEditor({ selectedElementId, elements, onUpdateElemen
         <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">
           Thermal
         </p>
-        <UValueField value={el.uValue} onSave={(v) => save({ uValue: v })} />
+        <UValueField value={el.uValue} disabled={!editable} onSave={(v) => save({ uValue: v })} />
       </div>
 
     </div>

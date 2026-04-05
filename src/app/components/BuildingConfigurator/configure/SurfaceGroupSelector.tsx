@@ -8,7 +8,7 @@ import { ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ELEMENT_DOTS } from '../shared/ui';
 import type { BuildingElement } from './BuildingVisualization';
-import { faceFromAzimuth } from './BuildingVisualization';
+import { faceFromAzimuth, isUserDefinedElement } from './BuildingVisualization';
 import { ELEMENT_GROUP_LABELS, type ElementGroupKey } from '../shared/elementListUtils';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -106,6 +106,7 @@ export function SurfaceGroupSelector({ elements, selectedElementId, onSelect }: 
                   {items.map((el) => {
                     const selected = el.id === selectedElementId;
                     const dir      = directionLabel(el);
+                    const userDefined = isUserDefinedElement(el);
                     return (
                       <button
                         key={el.id}
@@ -126,6 +127,11 @@ export function SurfaceGroupSelector({ elements, selectedElementId, onSelect }: 
                         )}>
                           {el.label}
                         </span>
+                        {userDefined && (
+                          <span className="shrink-0 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[9px] font-semibold text-blue-700">
+                            User
+                          </span>
+                        )}
                         <span className={cn(
                           'shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold',
                           selected
