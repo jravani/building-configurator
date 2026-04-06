@@ -1,15 +1,15 @@
 // Editing panel for a single selected building surface element.
-// Shows geometry (tilt, azimuth, area) and thermal (U-value) controls.
-// The header shows direction-group area as context only — all edits apply
-// exclusively to the selected element, not to the whole face group.
+// Geometry and Thermal properties are presented as tabs.
+// The custom-mode toggle lives in the header — no separate banner row.
 
-import { useState, useEffect, useRef } from 'react';
-import { ChevronUp, ChevronDown, Info, Layers, AlertTriangle, Lock, Wand2 } from 'lucide-react';
-import { ELEMENT_DOTS } from '../shared/ui';
+import React, { useState, useEffect, useRef } from 'react';
+import { ChevronUp, ChevronDown, Info, Layers, AlertTriangle, Wand2, Sun } from 'lucide-react';
+import { ELEMENT_DOTS, SegmentedControl, ToggleSwitch, NumberInput, FieldLabel } from '../shared/ui';
+import { createSurfacePvConfig, type PvConfig } from '../shared/buildingDefaults';
 import type { BuildingElement } from './BuildingVisualization';
 import { elementToGroup, isElementEditable, isUserDefinedElement } from './BuildingVisualization';
 
-// ─── Exported patch type (kept for any callers that still reference it) ────────
+// ─── Exported patch type ───────────────────────────────────────────────────────
 
 export type GroupPatch = Partial<Pick<BuildingElement, 'uValue' | 'tilt' | 'azimuth' | 'area'>>;
 
@@ -24,7 +24,6 @@ const TYPE_LABELS: Record<string, string> = {
   wall: 'Wall', window: 'Windows', door: 'Doors',
 };
 
-/** Human-readable label for the direction group containing the given element. */
 function groupLabel(el: BuildingElement): string {
   const g = elementToGroup(el);
   if (g.face === 'roof')  return 'Roof';
@@ -32,34 +31,26 @@ function groupLabel(el: BuildingElement): string {
   return `${DIR_LABELS[g.face] ?? g.face} ${TYPE_LABELS[el.type] ?? el.type}`;
 }
 
-/** Count and total area of all elements sharing the same face-direction group. */
 function deriveGroupStats(
   elements: Record<string, BuildingElement>,
   el: BuildingElement,
 ): { count: number; totalArea: number } {
-  const g = elementToGroup(el);
-  const peers = Object.values(elements).filter((e) => {
+  const g = Object.values(elements).filter((e) => {
     const eg = elementToGroup(e);
-    return eg.type === g.type && eg.face === g.face;
+    const eg2 = elementToGroup(el);
+    return eg.type === eg2.type && eg.face === eg2.face;
   });
-  return { count: peers.length, totalArea: peers.reduce((s, e) => s + e.area, 0) };
+  return { count: g.length, totalArea: g.reduce((s, e) => s + e.area, 0) };
 }
 
-// ─── Warnings ─────────────────────────────────────────────────────────────────
-
-/** Returns advisory messages for physically impractical parameter values.
- *  These are informational only — they do not block the user from saving. */
 function getWarnings(el: BuildingElement): string[] {
   const w: string[] = [];
-  if ((el.type === 'wall' || el.type === 'window' || el.type === 'door') && el.tilt < 70) {
-    w.push('Tilt is lower than expected for a vertical surface (walls and windows are typically ≥ 70°).');
-  }
-  if (el.type === 'roof' && el.tilt > 75) {
+  if ((el.type === 'wall' || el.type === 'window' || el.type === 'door') && el.tilt < 70)
+    w.push('Tilt is lower than expected for a vertical surface (typically ≥ 70°).');
+  if (el.type === 'roof' && el.tilt > 75)
     w.push('Near-vertical roof pitch is unusual — roofs rarely exceed 75°.');
-  }
-  if (el.type === 'floor' && el.tilt > 10) {
+  if (el.type === 'floor' && el.tilt > 10)
     w.push('Floor surfaces are typically horizontal (tilt ≈ 0°).');
-  }
   return w;
 }
 
@@ -75,7 +66,6 @@ interface SpinnerProps {
   onChange: (v: number) => void;
 }
 
-/** Large bold number input with integrated up/down stepper buttons and a ° badge. */
 function NumberSpinner({ value, min = 0, max = 360, step = 1, narrow = false, disabled = false, onChange }: SpinnerProps) {
   const [draft, setDraft] = useState(String(Math.round(value)));
 
@@ -117,7 +107,6 @@ function NumberSpinner({ value, min = 0, max = 360, step = 1, narrow = false, di
 
 // ─── Area spinner ─────────────────────────────────────────────────────────────
 
-/** Number spinner for area (m²) with one decimal place. */
 function AreaSpinner({ value, disabled = false, onChange }: { value: number; disabled?: boolean; onChange: (v: number) => void }) {
   const [draft, setDraft] = useState(value.toFixed(1));
 
@@ -157,11 +146,7 @@ function AreaSpinner({ value, disabled = false, onChange }: { value: number; dis
 
 // ─── Tilt control ─────────────────────────────────────────────────────────────
 
-// Pivot position and geometry constants for the 80×80 tilt SVG viewBox
-const TILT_PX    = 12;   // pivot x
-const TILT_PY    = 66;   // pivot y
-const TILT_L     = 55;   // surface line length
-const TILT_ARC_R = 22;   // arc radius
+const TILT_PX = 12; const TILT_PY = 66; const TILT_L = 55; const TILT_ARC_R = 22;
 const TILT_STEPS = [0, 15, 30, 45, 60, 75, 90];
 
 function tiltLabel(tilt: number): string {
@@ -173,8 +158,6 @@ function tiltLabel(tilt: number): string {
   return 'Vertical';
 }
 
-/** Interactive SVG showing a tilted surface. Click or drag to change the angle.
- *  Snaps to 5° increments. Step marks at every 15° for orientation. */
 function TiltVisual({ tilt, disabled = false, onChange }: { tilt: number; disabled?: boolean; onChange: (v: number) => void }) {
   const rad   = (tilt * Math.PI) / 180;
   const ex    = TILT_PX + TILT_L     * Math.cos(rad);
@@ -182,11 +165,14 @@ function TiltVisual({ tilt, disabled = false, onChange }: { tilt: number; disabl
   const arcEx = TILT_PX + TILT_ARC_R * Math.cos(rad);
   const arcEy = TILT_PY - TILT_ARC_R * Math.sin(rad);
   const arcHx = TILT_PX + TILT_ARC_R;
+  const midRad = rad / 2;
+  const labelR = TILT_ARC_R + 15;
+  const labelX = TILT_PX + labelR * Math.cos(midRad);
+  const labelY = TILT_PY - labelR * Math.sin(midRad);
 
   const svgRef   = useRef<SVGSVGElement>(null);
   const dragging = useRef(false);
 
-  // Release drag when mouse button is released anywhere on the page
   useEffect(() => {
     const onUp = () => { dragging.current = false; };
     window.addEventListener('mouseup', onUp);
@@ -198,77 +184,47 @@ function TiltVisual({ tilt, disabled = false, onChange }: { tilt: number; disabl
     const rect   = svgRef.current.getBoundingClientRect();
     const scaleX = 80 / rect.width;
     const scaleY = 80 / rect.height;
-    const vx     = (clientX - rect.left) * scaleX;
-    const vy     = (clientY - rect.top)  * scaleY;
-    const dx     = vx - TILT_PX;
-    const dy     = TILT_PY - vy;
+    const dx     = (clientX - rect.left) * scaleX - TILT_PX;
+    const dy     = TILT_PY - (clientY - rect.top) * scaleY;
     const raw    = (Math.atan2(dy, dx) * 180) / Math.PI;
     return Math.max(0, Math.min(90, Math.round(raw / 5) * 5));
   };
 
-  // Angle label placed at mid-arc with a small outward offset
-  const midRad  = rad / 2;
-  const labelR  = TILT_ARC_R + 15;
-  const labelX  = TILT_PX + labelR * Math.cos(midRad);
-  const labelY  = TILT_PY - labelR * Math.sin(midRad);
-
   return (
-    <svg
-      ref={svgRef}
-      width="80" height="80" viewBox="0 0 80 80"
+    <svg ref={svgRef} width="80" height="80" viewBox="0 0 80 80"
       className={`shrink-0 select-none ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-crosshair'}`}
       onMouseDown={(e) => { if (disabled) return; dragging.current = true; onChange(angleFromClient(e.clientX, e.clientY)); }}
       onMouseMove={(e) => { if (!disabled && dragging.current) onChange(angleFromClient(e.clientX, e.clientY)); }}
-      onMouseUp={(e) => { if (disabled) return; dragging.current = false; onChange(angleFromClient(e.clientX, e.clientY)); }}
+      onMouseUp={(e)   => { if (disabled) return; dragging.current = false; onChange(angleFromClient(e.clientX, e.clientY)); }}
     >
-      {/* Ground line */}
       <line x1={4} y1={TILT_PY} x2={76} y2={TILT_PY} stroke="#cbd5e1" strokeWidth={1.5} strokeLinecap="round" />
-
-      {/* Step tick marks at each 15° interval along the arc */}
       {TILT_STEPS.map((step) => {
-        const sr  = (step * Math.PI) / 180;
-        const r1  = TILT_ARC_R + 3;
-        const r2  = TILT_ARC_R + 8;
-        const x1  = TILT_PX + r1 * Math.cos(sr);
-        const y1  = TILT_PY - r1 * Math.sin(sr);
-        const x2  = TILT_PX + r2 * Math.cos(sr);
-        const y2  = TILT_PY - r2 * Math.sin(sr);
+        const sr = (step * Math.PI) / 180;
+        const r1 = TILT_ARC_R + 3; const r2 = TILT_ARC_R + 8;
         const near = Math.abs(step - tilt) < 8;
         return (
-          <line key={step} x1={x1} y1={y1} x2={x2} y2={y2}
+          <line key={step}
+            x1={TILT_PX + r1 * Math.cos(sr)} y1={TILT_PY - r1 * Math.sin(sr)}
+            x2={TILT_PX + r2 * Math.cos(sr)} y2={TILT_PY - r2 * Math.sin(sr)}
             stroke={near ? '#3b82f6' : '#e2e8f0'} strokeWidth={near ? 1.5 : 1} />
         );
       })}
-
-      {/* Angle arc from horizontal (0°) to current tilt */}
       {tilt > 1 && (
-        <path
-          d={`M ${arcHx} ${TILT_PY} A ${TILT_ARC_R} ${TILT_ARC_R} 0 0 0 ${arcEx} ${arcEy}`}
-          fill="none" stroke="#3b82f6" strokeWidth={1.5} strokeLinecap="round"
-        />
+        <path d={`M ${arcHx} ${TILT_PY} A ${TILT_ARC_R} ${TILT_ARC_R} 0 0 0 ${arcEx} ${arcEy}`}
+          fill="none" stroke="#3b82f6" strokeWidth={1.5} strokeLinecap="round" />
       )}
-
-      {/* Surface line */}
       <line x1={TILT_PX} y1={TILT_PY} x2={ex} y2={ey} stroke="#1e3a5f" strokeWidth={2.5} strokeLinecap="round" />
-
-      {/* Pivot dot */}
       <circle cx={TILT_PX} cy={TILT_PY} r={3.5} fill="#1e3a5f" />
-
-      {/* Angle label at mid-arc */}
       <text
         x={tilt < 10 ? TILT_PX + TILT_ARC_R + 8 : labelX}
         y={tilt < 10 ? TILT_PY - 6 : labelY}
         fontSize="10" fontWeight="700" fill="#3b82f6"
-        textAnchor="middle" dominantBaseline="middle"
-        style={{ userSelect: 'none' }}
-      >
-        {Math.round(tilt)}°
-      </text>
+        textAnchor="middle" dominantBaseline="middle" style={{ userSelect: 'none' }}
+      >{Math.round(tilt)}°</text>
     </svg>
   );
 }
 
-/** Tilt control: interactive SVG figure + spinner. No slider — click or drag the figure. */
 function TiltControl({ value, disabled = false, onChange }: { value: number; disabled?: boolean; onChange: (v: number) => void }) {
   return (
     <div className="flex flex-col gap-3">
@@ -295,25 +251,19 @@ function azimuthDirectionLabel(az: number): string {
   return dirs[Math.round(((az % 360) + 360) % 360 / 45) % 8];
 }
 
-// 120×120 SVG compass: center (60,60), ring radius 42.
-// Labels placed outside the ring at radius 54; blue dot sits on the ring border.
-const CX_C   = 60;
-const CY_C   = 60;
-const R_RING = 42;
-const R_LBLS = 54;   // label radius — outside the ring
+const CX_C = 60; const CY_C = 60; const R_RING = 42; const R_LBLS = 54;
 
 const COMPASS_DIRS = [
   { label: 'N',  az: 0,   bold: true,  red: true  },
   { label: 'NE', az: 45,  bold: false, red: false },
-  { label: 'E',  az: 90,  bold: true, red: false },
+  { label: 'E',  az: 90,  bold: true,  red: false },
   { label: 'SE', az: 135, bold: false, red: false },
-  { label: 'S',  az: 180, bold: true, red: false },
+  { label: 'S',  az: 180, bold: true,  red: false },
   { label: 'SW', az: 225, bold: false, red: false },
-  { label: 'W',  az: 270, bold: true, red: false },
+  { label: 'W',  az: 270, bold: true,  red: false },
   { label: 'NW', az: 315, bold: false, red: false },
 ] as const;
 
-/** Interactive SVG compass rose — click or drag to set azimuth, snaps to 45° steps. */
 function CompassRose({ azimuth, disabled = false, onChange }: { azimuth: number; disabled?: boolean; onChange: (v: number) => void }) {
   const R_NEEDLE = 28; const TAIL = 10;
   const rad   = (azimuth * Math.PI) / 180;
@@ -321,7 +271,10 @@ function CompassRose({ azimuth, disabled = false, onChange }: { azimuth: number;
   const tipY  = CY_C - R_NEEDLE * Math.cos(rad);
   const tailX = CX_C - TAIL * Math.sin(rad);
   const tailY = CY_C + TAIL * Math.cos(rad);
-
+  const snappedAz = Math.round(((azimuth % 360) + 360) % 360 / 45) * 45 % 360;
+  const hr = (snappedAz * Math.PI) / 180;
+  const hx = CX_C + R_RING * Math.sin(hr);
+  const hy = CY_C - R_RING * Math.cos(hr);
   const dragging = useRef(false);
 
   useEffect(() => {
@@ -338,53 +291,32 @@ function CompassRose({ azimuth, disabled = false, onChange }: { azimuth: number;
     return Math.round(raw / 45) * 45 % 360;
   };
 
-  // Blue dot sits exactly on the ring border at the snapped direction
-  const snappedAz = Math.round(((azimuth % 360) + 360) % 360 / 45) * 45 % 360;
-  const hr = (snappedAz * Math.PI) / 180;
-  const hx = CX_C + R_RING * Math.sin(hr);
-  const hy = CY_C - R_RING * Math.cos(hr);
-
   return (
-    <svg
-      width="120" height="120" viewBox="0 0 120 120"
+    <svg width="120" height="120" viewBox="0 0 120 120"
       className={`shrink-0 select-none ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
       onMouseDown={(e) => { if (disabled) return; dragging.current = true; onChange(angleFromEvent(e)); }}
       onMouseMove={(e) => { if (!disabled && dragging.current) onChange(angleFromEvent(e)); }}
-      onMouseUp={(e) => { if (disabled) return; dragging.current = false; onChange(angleFromEvent(e)); }}
+      onMouseUp={(e)   => { if (disabled) return; dragging.current = false; onChange(angleFromEvent(e)); }}
     >
-      {/* Outer ring */}
       <circle cx={CX_C} cy={CY_C} r={R_RING} fill="white" stroke="#e2e8f0" strokeWidth={1.5} />
-
-      {/* Inward tick marks at each 45° snap point */}
       {COMPASS_DIRS.map(({ az }) => {
         const r  = (az * Math.PI) / 180;
         const ox = CX_C + R_RING       * Math.sin(r); const oy = CY_C - R_RING       * Math.cos(r);
         const ix = CX_C + (R_RING - 5) * Math.sin(r); const iy = CY_C - (R_RING - 5) * Math.cos(r);
         return <line key={az} x1={ix} y1={iy} x2={ox} y2={oy} stroke="#cbd5e1" strokeWidth={1.5} />;
       })}
-
-      {/* Direction labels — outside the ring */}
       {COMPASS_DIRS.map(({ label, az, bold, red }) => {
         const r = (az * Math.PI) / 180;
-        const x = CX_C + R_LBLS * Math.sin(r);
-        const y = CY_C - R_LBLS * Math.cos(r);
+        const x = CX_C + R_LBLS * Math.sin(r); const y = CY_C - R_LBLS * Math.cos(r);
         return (
-          <text key={az} x={x} y={y}
-            textAnchor="middle" dominantBaseline="middle"
-            fontSize={label.length === 1 ? '10' : '8'}
-            fontWeight={bold ? '1000' : '500'}
-            fill={red ? '#c53030' : '#94a3b8'}
-            style={{ userSelect: 'none' }}
-          >
+          <text key={az} x={x} y={y} textAnchor="middle" dominantBaseline="middle"
+            fontSize={label.length === 1 ? '10' : '8'} fontWeight={bold ? '1000' : '500'}
+            fill={red ? '#c53030' : '#94a3b8'} style={{ userSelect: 'none' }}>
             {label}
           </text>
         );
       })}
-
-      {/* Active direction highlight — solid dot on the ring border */}
       <circle cx={hx} cy={hy} r={4} fill="#3b82f6" />
-
-      {/* Needle */}
       <line x1={tailX} y1={tailY} x2={tipX} y2={tipY} stroke="#1e3a5f" strokeWidth={3} strokeLinecap="round" />
       <circle cx={tailX} cy={tailY} r={2.5} fill="#475569" />
       <circle cx={tipX}  cy={tipY}  r={5}   fill="#1e3a5f" />
@@ -393,7 +325,6 @@ function CompassRose({ azimuth, disabled = false, onChange }: { azimuth: number;
   );
 }
 
-/** Azimuth control: interactive compass rose + number spinner + direction label. */
 function AzimuthControl({ value, disabled = false, onChange }: { value: number; disabled?: boolean; onChange: (v: number) => void }) {
   return (
     <div className="flex flex-col gap-3">
@@ -412,10 +343,28 @@ function AzimuthControl({ value, disabled = false, onChange }: { value: number; 
   );
 }
 
-// ─── U-value field ────────────────────────────────────────────────────────────
+// ─── Thermal field — inline click-to-edit row ─────────────────────────────────
 
-/** Inline click-to-edit U-value row. */
-function UValueField({ value, disabled = false, onSave }: { value: number; disabled?: boolean; onSave: (v: number) => void }) {
+/** Read-only display row used in basic mode and for derived values. */
+function ThermalReadRow({ label, value, unit }: { label: string; value: string; unit: string }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-[11px] text-slate-500">{label}</span>
+      <div className="flex items-baseline gap-1">
+        <span className="text-[12px] font-semibold text-slate-800">{value}</span>
+        <span className="text-[10px] text-slate-400">{unit}</span>
+      </div>
+    </div>
+  );
+}
+
+/** Click-to-edit inline field for numeric thermal values. */
+function ThermalEditRow({
+  label, value, unit, disabled = false, min = 0.001, max, step = 0.01, onSave,
+}: {
+  label: string; value: number; unit: string; disabled?: boolean;
+  min?: number; max?: number; step?: number; onSave: (v: number) => void;
+}) {
   const [editing, setEditing] = useState(false);
   const [draft,   setDraft]   = useState(value.toFixed(2));
 
@@ -423,17 +372,17 @@ function UValueField({ value, disabled = false, onSave }: { value: number; disab
 
   const commit = () => {
     const n = parseFloat(draft);
-    if (Number.isFinite(n) && n > 0) onSave(n);
+    if (Number.isFinite(n) && n > (min ?? -Infinity)) onSave(n);
     setEditing(false);
   };
 
   return (
     <div className="group/row flex items-center justify-between gap-3">
-      <span className="text-[11px] text-slate-500">U-value</span>
+      <span className="text-[11px] text-slate-500">{label}</span>
       {editing && !disabled ? (
         <div className="flex items-center gap-1.5">
           <input
-            type="number" step="0.01" min="0.01" autoFocus
+            type="number" step={step} min={min} max={max} autoFocus
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commit}
@@ -443,19 +392,19 @@ function UValueField({ value, disabled = false, onSave }: { value: number; disab
             }}
             className="w-20 rounded border border-blue-300 bg-white px-2 py-0.5 text-right text-[11px] font-medium text-slate-700 outline-none ring-1 ring-blue-200 focus:ring-blue-400"
           />
-          <span className="text-[10px] text-slate-400">W/m²K</span>
+          <span className="text-[10px] text-slate-400">{unit}</span>
         </div>
       ) : (
         disabled ? (
-          <div className="flex items-baseline gap-1 rounded px-1.5 py-0.5 opacity-50">
+          <div className="flex items-baseline gap-1 opacity-50">
             <span className="text-[12px] font-semibold text-slate-800">{value.toFixed(2)}</span>
-            <span className="text-[10px] text-slate-400">W/m²K</span>
+            <span className="text-[10px] text-slate-400">{unit}</span>
           </div>
         ) : (
           <button type="button" onClick={() => setEditing(true)}
             className="flex cursor-pointer items-baseline gap-1 rounded px-1.5 py-0.5 hover:bg-slate-100 group-hover/row:ring-1 group-hover/row:ring-slate-200">
             <span className="text-[12px] font-semibold text-slate-800">{value.toFixed(2)}</span>
-            <span className="text-[10px] text-slate-400">W/m²K</span>
+            <span className="text-[10px] text-slate-400">{unit}</span>
           </button>
         )
       )}
@@ -463,25 +412,211 @@ function UValueField({ value, disabled = false, onSave }: { value: number; disab
   );
 }
 
-function sourceMessage(el: BuildingElement): string {
-  if (el.source === 'city') return 'Imported from 3D city data. Enable custom mode to override geometry or thermal values.';
-  if (el.source === 'default') return 'Loaded from the default open-data estimate. Enable custom mode to override this baseline.';
-  return 'User-defined surface. Geometry and thermal values are fully editable.';
+/** Dropdown row for Code_* fields with a fixed set of valid options. */
+function ThermalSelectRow({
+  label, value, options, disabled = false, onSave,
+}: {
+  label: string; value: string; options: string[]; disabled?: boolean; onSave: (v: string) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-[11px] text-slate-500">{label}</span>
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onSave(e.target.value)}
+        className="rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700 outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-200 disabled:opacity-50"
+      >
+        {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  );
+}
+
+// ─── PV helpers ──────────────────────────────────────────────────────────────
+
+/** Short compass label from azimuth degrees. */
+function compassDir(az: number): string {
+  const dirs: Array<[number, string]> = [
+    [22.5, 'N'], [67.5, 'NE'], [112.5, 'E'], [157.5, 'SE'],
+    [202.5, 'S'], [247.5, 'SW'], [292.5, 'W'], [337.5, 'NW'],
+  ];
+  return dirs.find(([lim]) => az < lim)?.[1] ?? 'N';
+}
+
+/** PV configuration tab for a single surface.
+ *  Shows a toggle, geometry mode selector, capacity input, and expert params. */
+function PvTab({
+  el,
+  pvConfig,
+  onUpdate,
+  mode = 'basic',
+}: {
+  el: BuildingElement;
+  pvConfig: PvConfig;
+  onUpdate: (patch: Partial<PvConfig>) => void;
+  mode?: 'basic' | 'expert';
+}) {
+  const effectiveTilt    = pvConfig.geometryMode === 'surface' ? el.tilt    : pvConfig.tilt;
+  const effectiveAzimuth = pvConfig.geometryMode === 'surface' ? el.azimuth : pvConfig.azimuth;
+
+  return (
+    <div className="flex flex-col gap-3">
+
+      {/* Toggle */}
+      <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <div className="flex items-center gap-2">
+          <Sun className="size-4 text-yellow-500" />
+          <span className="text-[12px] font-semibold text-slate-700">PV on this surface</span>
+        </div>
+        <ToggleSwitch
+          checked={pvConfig.installed}
+          onChange={(v) => onUpdate({ installed: v })}
+        />
+      </div>
+
+      {pvConfig.installed && (
+        <>
+          {/* Geometry mode */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-4 shadow-sm">
+            <div className="mb-3">
+              <FieldLabel tip="'From surface' inherits tilt and azimuth from the surface geometry. 'Custom' lets you override them for the PV panels specifically.">
+                Panel geometry
+              </FieldLabel>
+              <div className="mt-1.5">
+                <SegmentedControl
+                  options={[
+                    { value: 'surface', label: 'From surface' },
+                    { value: 'manual',  label: 'Custom'        },
+                  ]}
+                  value={pvConfig.geometryMode}
+                  onChange={(v) => onUpdate({ geometryMode: v as 'surface' | 'manual' })}
+                />
+              </div>
+            </div>
+
+            {pvConfig.geometryMode === 'surface' ? (
+              /* Read-only surface geometry display */
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                  <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">Tilt</p>
+                  <p className="mt-0.5 text-sm font-bold text-slate-700">{el.tilt}°</p>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                  <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">Azimuth</p>
+                  <p className="mt-0.5 text-sm font-bold text-slate-700">
+                    {el.azimuth}°
+                    <span className="ml-1 text-[10px] font-normal text-slate-400">{compassDir(el.azimuth)}</span>
+                  </p>
+                </div>
+              </div>
+            ) : (
+              /* Editable custom geometry */
+              <div className="grid grid-cols-2 gap-4">
+                <TiltControl
+                  value={pvConfig.tilt}
+                  onChange={(v) => onUpdate({ tilt: v })}
+                />
+                <div className="border-l border-slate-200 pl-4">
+                  <AzimuthControl
+                    value={pvConfig.azimuth}
+                    onChange={(v) => onUpdate({ azimuth: v })}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Effective summary */}
+            <div className="mt-3 flex items-center gap-1.5 border-t border-slate-200 pt-2">
+              <span className="text-[10px] text-slate-400">Effective:</span>
+              <span className="text-[10px] font-semibold text-slate-600">
+                {effectiveTilt}° tilt · {effectiveAzimuth}° ({compassDir(effectiveAzimuth)})
+              </span>
+            </div>
+          </div>
+
+          {/* Capacity */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-4 shadow-sm">
+            <div>
+              <FieldLabel tip="Nameplate DC rated capacity of the PV system installed on this surface.">
+                System capacity
+              </FieldLabel>
+              <NumberInput
+                value={pvConfig.system_capacity}
+                onChange={(v) => onUpdate({
+                  system_capacity: Math.max(0, v),
+                  cont_energy_cap_max: Math.max(v, pvConfig.cont_energy_cap_max),
+                })}
+                unit="kWp"
+                min={0} max={500} step={0.5}
+              />
+            </div>
+            <div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-2">
+              <span className="text-[11px] text-muted-foreground">Estimated roof area needed</span>
+              <span className="text-xs font-semibold text-foreground">
+                {(pvConfig.system_capacity * 6.5).toFixed(1)}{' '}
+                <span className="text-[10px] font-normal text-muted-foreground">m²</span>
+              </span>
+            </div>
+          </div>
+
+          {/* Expert: efficiency + economics */}
+          {mode === 'expert' && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-4 shadow-sm">
+              <p className="mb-3 text-[11px] font-semibold text-slate-600">Efficiency</p>
+              <div className="flex flex-col gap-2.5">
+                <div className="flex items-center justify-between">
+                  <FieldLabel tip="Combined panel and wiring efficiency (0–1).">Panel efficiency</FieldLabel>
+                  <div className="w-28">
+                    <NumberInput value={pvConfig.cont_energy_eff} onChange={(v) => onUpdate({ cont_energy_eff: Math.max(0, Math.min(1, v)) })} unit="–" min={0} max={1} step={0.01} />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <FieldLabel tip="DC-to-AC inverter efficiency (0–1).">Inverter efficiency</FieldLabel>
+                  <div className="w-28">
+                    <NumberInput value={pvConfig.inv_eff} onChange={(v) => onUpdate({ inv_eff: Math.max(0, Math.min(1, v)) })} unit="–" min={0} max={1} step={0.01} />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <FieldLabel tip="System losses fraction (dust, temperature, wiring).">System losses</FieldLabel>
+                  <div className="w-28">
+                    <NumberInput value={+(pvConfig.losses * 100).toFixed(1)} onChange={(v) => onUpdate({ losses: v / 100 })} unit="%" min={0} max={50} step={0.5} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
 interface SurfaceGroupEditorProps {
-  /** ID of the single element being edited. Null shows the empty state. */
   selectedElementId: string | null;
   elements: Record<string, BuildingElement>;
   onUpdateElement: (id: string, patch: Partial<BuildingElement>) => void;
   onEnableCustomMode: (id: string) => void;
+  /** Which tab to open when a surface is selected from another workflow. */
+  preferredTab?: 'geometry' | 'thermal' | 'pv';
+  /** Per-surface PV config for the selected element, or null if none exists yet. */
+  surfacePvConfig: PvConfig | null;
+  /** Called when the user modifies the PV config for the selected surface. */
+  onUpdatePv: (patch: Partial<PvConfig>) => void;
+  mode?: 'basic' | 'expert';
 }
 
-/** Shows and edits surface parameters for the single selected building element.
- *  Direction-group area is displayed in the header for context only. */
-export function SurfaceGroupEditor({ selectedElementId, elements, onUpdateElement, onEnableCustomMode }: SurfaceGroupEditorProps) {
+export function SurfaceGroupEditor({
+  selectedElementId, elements, onUpdateElement, onEnableCustomMode,
+  preferredTab = 'geometry', surfacePvConfig, onUpdatePv, mode = 'basic',
+}: SurfaceGroupEditorProps) {
+  const [activeTab, setActiveTab] = useState<'geometry' | 'thermal' | 'pv'>('geometry');
+
+  // Reset tab when a different element is selected
+  useEffect(() => { setActiveTab(preferredTab); }, [preferredTab, selectedElementId]);
+
   const el = selectedElementId ? elements[selectedElementId] : null;
 
   if (!el) {
@@ -493,7 +628,7 @@ export function SurfaceGroupEditor({ selectedElementId, elements, onUpdateElemen
         <div>
           <p className="text-sm font-semibold text-slate-600">No surface selected</p>
           <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
-            Click a face in the 3D preview, pick a surface from the list on the right, or use the fixed New button in the Surfaces panel.
+            Click a face in the 3D preview, pick a surface from the list, or use the New button above.
           </p>
         </div>
       </div>
@@ -508,32 +643,51 @@ export function SurfaceGroupEditor({ selectedElementId, elements, onUpdateElemen
   const editable          = isElementEditable(el);
   const userDefined       = isUserDefinedElement(el);
   const isImported        = el.source === 'city' || el.source === 'default';
+  const isWindow          = el.type === 'window';
+  const hasTransmission   = el.type !== 'window';
+
+  const rValue = el.uValue > 0 ? (1 / el.uValue).toFixed(3) : '∞';
 
   return (
     <div className="flex h-full flex-col overflow-y-auto p-5">
 
-      {/* Header */}
-      <div className="mb-5 flex items-center gap-3">
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div className="mb-4 flex items-start gap-3">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-lg"
           style={{ backgroundColor: `${dotColor}22` }}>
           <span className="size-3.5 rounded-full" style={{ backgroundColor: dotColor }} />
         </div>
-        <div>
+
+        <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-base font-bold text-slate-800">{el.label}</p>
+
+            {/* Source badges */}
             {userDefined && (
               <span className="rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
                 User defined
               </span>
             )}
             {isImported && !editable && (
-              <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                <Lock className="size-3" />
+              <span className="rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
                 Read only
               </span>
             )}
+
+            {/* Custom mode toggle — solid primary button, right side of header */}
+            {isImported && !editable && (
+              <button
+                type="button"
+                onClick={() => onEnableCustomMode(el.id)}
+                className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-[10px] font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+              >
+                <Wand2 className="size-3" />
+                Enable custom mode
+              </button>
+            )}
           </div>
-          <p className="text-[11px] text-muted-foreground">
+
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
             {el.area.toFixed(1)} m²
             {count > 1 && (
               <span className="text-muted-foreground/60">
@@ -544,72 +698,135 @@ export function SurfaceGroupEditor({ selectedElementId, elements, onUpdateElemen
         </div>
       </div>
 
-      <div className="mb-4 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-semibold text-slate-700">
-              {editable ? 'Custom surface configuration is active.' : 'Source-derived geometry is locked.'}
-            </p>
-            <p className="mt-1 text-[10px] leading-snug text-slate-500">{sourceMessage(el)}</p>
+      {/* ── Tab bar ─────────────────────────────────────────────────────────── */}
+      <div className="mb-3">
+        <SegmentedControl
+          fullWidth
+          options={[
+            { value: 'geometry', label: 'Geometry' },
+            { value: 'thermal',  label: 'Thermal'  },
+            { value: 'pv',       label: 'PV'        },
+          ]}
+          value={activeTab}
+          onChange={(v) => setActiveTab(v as 'geometry' | 'thermal' | 'pv')}
+        />
+      </div>
+
+      {/* ── Geometry tab ────────────────────────────────────────────────────── */}
+      {activeTab === 'geometry' && (
+        <>
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-4 shadow-sm">
+            <div className="grid grid-cols-2 gap-4">
+              <TiltControl value={el.tilt} disabled={!editable} onChange={(v) => save({ tilt: v })} />
+              <div className="border-l border-slate-200 pl-4">
+                <AzimuthControl value={el.azimuth} disabled={!editable} onChange={(v) => save({ azimuth: v })} />
+              </div>
+            </div>
+
+            <div className="mt-4 border-t border-slate-200 pt-4">
+              <span className="mb-2 block text-[12px] font-semibold text-slate-700">Area</span>
+              <AreaSpinner value={el.area} disabled={!editable} onChange={(v) => save({ area: v })} />
+            </div>
           </div>
-          {!editable && (
-            <button
-              type="button"
-              onClick={() => onEnableCustomMode(el.id)}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-[11px] font-semibold text-white transition-colors hover:bg-slate-800"
-            >
-              <Wand2 className="size-3.5" />
-              Enable custom mode
-            </button>
+
+          {warnings.length > 0 && (
+            <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+              <div className="flex flex-col gap-1">
+                {warnings.map((w, i) => (
+                  <p key={i} className="text-[10px] leading-snug text-amber-700">{w}</p>
+                ))}
+              </div>
+            </div>
           )}
-        </div>
-      </div>
+        </>
+      )}
 
-      {/* Geometry card */}
-      <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-4 shadow-sm">
-        <p className="mb-4 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">
-          Geometry
-        </p>
+      {/* ── Thermal tab ─────────────────────────────────────────────────────── */}
+      {activeTab === 'thermal' && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-4 shadow-sm">
+          <div className="flex flex-col gap-3">
 
-        {/* Row 1 — Tilt | Azimuth */}
-        <div className="grid grid-cols-2 gap-4">
-          <TiltControl value={el.tilt} disabled={!editable} onChange={(v) => save({ tilt: v })} />
-          <div className="border-l border-slate-200 pl-4">
-            <AzimuthControl value={el.azimuth} disabled={!editable} onChange={(v) => save({ azimuth: v })} />
-          </div>
-        </div>
+            {/* U-value — always shown */}
+            <ThermalEditRow
+              label="U-value"
+              value={el.uValue}
+              unit="W/m²K"
+              disabled={!editable}
+              min={0.01} max={10} step={0.01}
+              onSave={(v) => save({ uValue: Math.max(0.01, v) })}
+            />
 
-        {/* Row 2 — Area */}
-        <div className="mt-4 grid grid-cols-2 gap-4 border-t border-slate-200 pt-4">
-          <div className="flex flex-col gap-2">
-            <span className="text-[12px] font-semibold text-slate-700">Area</span>
-            <AreaSpinner value={el.area} disabled={!editable} onChange={(v) => save({ area: v })} />
-          </div>
-          <div className="border-l border-slate-200 pl-4 opacity-40">
-            <span className="text-[11px] text-slate-400">More parameters coming soon</span>
-          </div>
-        </div>
-      </div>
+            {/* Expert fields */}
+            {mode === 'expert' && (
+              <>
+                {/* R-value — derived, read-only */}
+                <ThermalReadRow label="R-value (1/U)" value={rValue} unit="m²K/W" />
 
-      {/* Impractical-value warnings */}
-      {warnings.length > 0 && (
-        <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
-          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
-          <div className="flex flex-col gap-1">
-            {warnings.map((w, i) => (
-              <p key={i} className="text-[10px] leading-snug text-amber-700">{w}</p>
-            ))}
+                {/* g-value — windows only */}
+                {isWindow && (
+                  <ThermalEditRow
+                    label="g-value (SHGC)"
+                    value={el.gValue ?? 0.6}
+                    unit="–"
+                    disabled={!editable}
+                    min={0} max={1} step={0.01}
+                    onSave={(v) => save({ gValue: Math.min(1, Math.max(0, v)) })}
+                  />
+                )}
+
+                <div className="border-t border-slate-200 pt-3 flex flex-col gap-3">
+
+                  {/* Insulation thickness — opaque elements */}
+                  {!isWindow && el.dInsulation !== undefined && (
+                    <ThermalEditRow
+                      label="Insulation thickness"
+                      value={el.dInsulation}
+                      unit="m"
+                      disabled={!editable}
+                      min={0} max={1} step={0.01}
+                      onSave={(v) => save({ dInsulation: Math.max(0, v) })}
+                    />
+                  )}
+
+                  {/* Heat loss correction factor — non-window elements */}
+                  {hasTransmission && el.bTransmission !== undefined && (
+                    <ThermalEditRow
+                      label="Heat loss factor (b)"
+                      value={el.bTransmission}
+                      unit="–"
+                      disabled={!editable}
+                      min={0} max={1} step={0.01}
+                      onSave={(v) => save({ bTransmission: Math.min(1, Math.max(0, v)) })}
+                    />
+                  )}
+
+                  {/* Measure type — dropdown when options are available */}
+                  {el.measureType !== undefined && el.measureTypeOptions && el.measureTypeOptions.length > 0 && (
+                    <ThermalSelectRow
+                      label="Measure type"
+                      value={el.measureType}
+                      options={el.measureTypeOptions}
+                      disabled={!editable}
+                      onSave={(v) => save({ measureType: v })}
+                    />
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
 
-      {/* Thermal card */}
-      <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-4 shadow-sm">
-        <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">
-          Thermal
-        </p>
-        <UValueField value={el.uValue} disabled={!editable} onSave={(v) => save({ uValue: v })} />
-      </div>
+      {/* PV tab -- surfacePvConfig is null until the user first interacts; use defaults */}
+      {activeTab === 'pv' && (
+        <PvTab
+          el={el}
+          pvConfig={surfacePvConfig ?? createSurfacePvConfig(el)}
+          onUpdate={onUpdatePv}
+          mode={mode}
+        />
+      )}
 
     </div>
   );
