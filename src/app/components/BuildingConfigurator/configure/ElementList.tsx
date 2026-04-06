@@ -8,7 +8,7 @@
 
 import { useState, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn } from '../../../../lib/utils';
 import { ELEMENT_DOTS } from '../shared/ui';
 import type { BuildingElement, FaceGroup } from './BuildingVisualization';
 import { faceFromAzimuth } from './BuildingVisualization';
@@ -33,7 +33,7 @@ export interface ElementListProps {
 
 /** 8-point direction label matching faceFromAzimuth — ensures list and 3D preview always agree. */
 function surfaceDirection(el: BuildingElement): string {
-  if (el.type === 'roof')  return 'Top';
+  if (el.type === 'roof' && el.tilt <= 10) return 'Top';
   if (el.type === 'floor') return 'Base';
   const MAP: Record<string, string> = {
     north_wall: 'N',  northeast_wall: 'NE',
@@ -47,7 +47,11 @@ function surfaceDirection(el: BuildingElement): string {
 /** Returns true when an element belongs to the currently selected face group. */
 function elementMatchesGroup(el: BuildingElement, group: FaceGroup): boolean {
   if (el.type !== group.type) return false;
-  if (group.type === 'roof' || group.type === 'floor') return true;
+  if (group.type === 'roof') {
+    if (group.elementId) return el.id === group.elementId;
+    return (el.tilt <= 10 ? 'roof' : faceFromAzimuth(el.azimuth)) === group.face;
+  }
+  if (group.type === 'floor') return true;
   return faceFromAzimuth(el.azimuth) === group.face;
 }
 
