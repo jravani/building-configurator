@@ -5,8 +5,8 @@
 import React, { useState, useRef } from 'react';
 import { ScrollHintContainer } from '../shared/ui';
 import { AlertTriangle, Zap, Flame, Droplets, Gauge, Pencil, Check, X } from 'lucide-react';
-import { cn } from '../../../../lib/utils';
-import type { EnergyTotals } from './LoadProfileViewer';
+import { cn } from '@/lib/utils';
+import type { EnergyTotals } from '../../../lib/loadProfile';
 import { SnapshotRow, SnapshotStatusBadge } from '../shared/snapshotUtils';
 import { yearToConstructionPeriod } from '../shared/buildingOptions';
 

@@ -84,7 +84,7 @@ function NumberSpinner({ value, min = 0, max = 360, step = 1, decimals = 0, unit
 
   return (
     <div className="flex items-center gap-1.5">
-      <div className={`flex items-center overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${narrow ? 'w-[80px]' : 'w-[96px]'} ${disabled ? 'opacity-50' : ''}`}>
+      <div className={`flex items-center overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${narrow ? 'w-[100px]' : 'w-[120px]'} ${disabled ? 'opacity-50' : ''}`}>
         <input
           type="number" min={min} max={max} step={step} value={draft} disabled={disabled}
           onChange={(e) => setDraft(e.target.value)}
@@ -94,16 +94,16 @@ function NumberSpinner({ value, min = 0, max = 360, step = 1, decimals = 0, unit
         />
         <div className="flex shrink-0 flex-col border-l border-slate-200">
           <button type="button" disabled={disabled} onClick={() => onChange(clamp(parseFloat((value + step).toFixed(decimals))))}
-            className="flex h-6 w-7 items-center justify-center border-b border-slate-200 bg-slate-800 text-white transition-colors enabled:cursor-pointer enabled:hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400">
-            <ChevronUp className="size-3" />
+            className="flex h-7 w-8 items-center justify-center border-b border-slate-200 bg-slate-800 text-white transition-colors enabled:cursor-pointer enabled:hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400">
+            <ChevronUp className="size-3.5" />
           </button>
           <button type="button" disabled={disabled} onClick={() => onChange(clamp(parseFloat((value - step).toFixed(decimals))))}
-            className="flex h-6 w-7 items-center justify-center bg-slate-800 text-white transition-colors enabled:cursor-pointer enabled:hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400">
-            <ChevronDown className="size-3" />
+            className="flex h-7 w-8 items-center justify-center bg-slate-800 text-white transition-colors enabled:cursor-pointer enabled:hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400">
+            <ChevronDown className="size-3.5" />
           </button>
         </div>
       </div>
-      <span className={unit === '°' ? 'text-[20px] text-slate-400' : 'text-[11px] text-slate-400'}>{unit}</span>
+      <span className={unit === '°' ? 'text-[20px] text-slate-400' : 'text-[12px] font-medium text-slate-400'}>{unit}</span>
     </div>
   );
 }
@@ -191,16 +191,16 @@ function TiltVisual({ tilt, disabled = false, onChange }: { tilt: number; disabl
 
 function TiltControl({ value, disabled = false, onChange }: { value: number; disabled?: boolean; onChange: (v: number) => void }) {
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1">
-          <span className="text-[12px] font-semibold text-slate-700">Tilt</span>
-          <Info className="size-3 text-slate-400" />
+    <div className="flex flex-col items-center gap-3">
+      <div className="flex items-center justify-center gap-4">
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-1">
+            <span className="text-sm font-semibold text-slate-700">Tilt</span>
+            <Info className="size-3.5 text-slate-400" />
+          </div>
+          <p className="text-[11px] text-slate-500">{tiltLabel(value)}</p>
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <NumberSpinner value={value} min={0} max={90} disabled={disabled} onChange={onChange} />
-          <p className="text-[10px] text-slate-500">{tiltLabel(value)}</p>
-        </div>
+        <NumberSpinner value={value} min={0} max={90} disabled={disabled} onChange={onChange} />
       </div>
       <TiltVisual tilt={value} disabled={disabled} onChange={onChange} />
     </div>
@@ -291,16 +291,16 @@ function CompassRose({ azimuth, disabled = false, onChange }: { azimuth: number;
 
 function AzimuthControl({ value, disabled = false, onChange }: { value: number; disabled?: boolean; onChange: (v: number) => void }) {
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1">
-          <span className="text-[12px] font-semibold text-slate-700">Azimuth</span>
-          <Info className="size-3 text-slate-400" />
+    <div className="flex flex-col items-center gap-3">
+      <div className="flex items-center justify-center gap-4">
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-1">
+            <span className="text-sm font-semibold text-slate-700">Azimuth</span>
+            <Info className="size-3.5 text-slate-400" />
+          </div>
+          <p className="text-[11px] text-slate-500">{azimuthDirectionLabel(value)}</p>
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <NumberSpinner value={value} min={0} max={359} disabled={disabled} onChange={onChange} />
-          <p className="text-[10px] text-slate-500">{azimuthDirectionLabel(value)}</p>
-        </div>
+        <NumberSpinner value={value} min={0} max={359} disabled={disabled} onChange={onChange} />
       </div>
       <CompassRose azimuth={value} disabled={disabled} onChange={onChange} />
     </div>
@@ -796,15 +796,15 @@ export function SurfaceGroupEditor({
 
             {/* Area + U-value */}
             <div className="mt-4 border-t border-slate-200 pt-4 grid grid-cols-2 gap-4">
-              <div className="flex flex-col gap-3">
-                <span className="text-[12px] font-semibold text-slate-700">Area</span>
+              <div className="flex items-center justify-center gap-4">
+                <span className="text-sm font-semibold text-slate-700">Area</span>
                 <NumberSpinner
                   value={el.area} min={0.1} max={100000} step={1} decimals={1} unit="m²"
                   onChange={(v) => save({ area: Math.max(0.1, v) })}
                 />
               </div>
-              <div className="border-l border-slate-200 pl-4 flex flex-col gap-3">
-                <span className="text-[12px] font-semibold text-slate-700">U-value</span>
+              <div className="border-l border-slate-200 pl-4 flex items-center justify-center gap-4">
+                <span className="text-sm font-semibold text-slate-700">U-value</span>
                 <NumberSpinner
                   value={el.uValue} min={0.01} max={10} step={0.01} decimals={2} unit="W/m²K"
                   onChange={(v) => save({ uValue: Math.max(0.01, v) })}

@@ -54,8 +54,8 @@ function CompassWidget({ azimuth, onChange }: { azimuth: number; onChange: (v: n
   return (
     <div className="flex items-center gap-3">
       <svg
-        width={76} height={76}
-        viewBox="0 0 76 76"
+        width={100} height={100}
+        viewBox="0 0 100 100"
         style={{ cursor: 'crosshair', flexShrink: 0 }}
         onClick={handleClick}
       >

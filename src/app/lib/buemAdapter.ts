@@ -13,7 +13,7 @@ import {
   hasMappedValue,
 } from '../config/modelDataResolver';
 import type { BuildingElement } from '@/app/components/BuildingConfigurator/configure/model/buildingElements';
-import type { LoadDataPoint } from '../components/BuildingConfigurator/overview/LoadProfileViewer';
+import type { LoadDataPoint } from './loadProfile';
 
 // ─── Exported types ───────────────────────────────────────────────────────────
 
