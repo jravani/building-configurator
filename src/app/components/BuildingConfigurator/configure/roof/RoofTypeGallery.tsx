@@ -311,29 +311,31 @@ export function RoofTypeCards({ elements, onApplyRoofType }: RoofTypeCardsProps)
               type="button"
               onClick={() => handleSelect(def.id)}
               className={cn(
-                'flex flex-col gap-2 rounded-xl border p-3 text-left transition-all duration-150 cursor-pointer',
+                'relative flex flex-col gap-1.5 rounded-lg border p-2 text-left transition-all duration-150 cursor-pointer',
                 isSelected
-                  ? 'border-primary/60 bg-primary/5 shadow-sm ring-1 ring-primary/20'
-                  : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/80',
+                  ? 'border-slate-400 bg-slate-100'
+                  : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50',
               )}
             >
-              <div className="flex w-full gap-1.5">
+              {isSelected && (
+                <span className="absolute right-1.5 top-1.5 flex size-3.5 items-center justify-center rounded-full bg-slate-600">
+                  <svg className="size-2 text-white" viewBox="0 0 8 8" fill="currentColor"><path d="M1 4l2 2 4-4"/></svg>
+                </span>
+              )}
+              <div className="flex w-full gap-1">
                 <div className="flex flex-1 flex-col gap-0.5">
-                  <span className="text-center text-[8px] font-medium text-slate-400">Side</span>
+                  <span className="text-center text-[7px] font-medium text-slate-400">Side</span>
                   <ElevationSvg type={def.id} selected={isSelected} />
                 </div>
                 <div className="w-px self-stretch bg-slate-100" />
                 <div className="flex flex-1 flex-col gap-0.5">
-                  <span className="text-center text-[8px] font-medium text-slate-400">Top</span>
+                  <span className="text-center text-[7px] font-medium text-slate-400">Top</span>
                   <PlanSvg type={def.id} selected={isSelected} />
                 </div>
               </div>
-              <div>
-                <p className={cn('text-[11px] font-semibold leading-tight', isSelected ? 'text-primary' : 'text-slate-800')}>
-                  {def.label}
-                </p>
-                <p className="mt-0.5 text-[9px] leading-snug text-slate-500">{def.description}</p>
-              </div>
+              <p className={cn('text-[10px] font-semibold leading-tight', isSelected ? 'text-slate-700' : 'text-slate-700')}>
+                {def.label}
+              </p>
             </button>
           );
         })}

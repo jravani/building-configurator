@@ -5,7 +5,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
   Download, Upload, X, Building2, RotateCcw, Check, AlertTriangle,
-  Flame, Zap, Droplets, Gauge, Plus, ChevronDown,
+  Flame, Zap, Droplets, Gauge,
 } from 'lucide-react';
 
 import { BuildingVisualization, VIEW_ORDER } from './configure/visualization/BuildingVisualization';
@@ -17,7 +17,7 @@ import {
   faceFromAzimuth,
 } from './configure/model/buildingElements';
 import { type RoofConfig, DEFAULT_ROOF_CONFIG } from './configure/model/roof';
-import { SegmentedControl, ConfiguratorStyles, ScrollHintContainer, ELEMENT_DOTS } from './shared/ui';
+import { SegmentedControl, ConfiguratorStyles, ScrollHintContainer } from './shared/ui';
 import { cn } from '../../../lib/utils';
 import { type EnergyTotals, type LoadDataPoint } from '../../lib/loadProfile';
 
@@ -38,11 +38,10 @@ import { EnergyEnvelopeColumn } from './overview/EnergyEnvelopeColumn';
 import { SurfaceGroupSelector } from './configure/surfaces/SurfaceGroupSelector';
 import { SurfaceGroupGrid } from './configure/surfaces/SurfaceGroupGrid';
 import { SurfaceGroupEditor } from './configure/surfaces/SurfaceGroupEditor';
-import { RoofTypeCards, detectRoofType } from './configure/roof/RoofTypeGallery';
 import { BuildingEditor } from './configure/building/BuildingEditor';
 import { PvSurfaceManager } from './configure/pv/PvSurfaceManager';
 import { BatteryEditor } from './configure/pv/BatteryEditor';
-import { createSurfacePvConfig, DEFAULT_PV_CONFIG, DEFAULT_BATTERY_CONFIG } from './shared/buildingDefaults';
+import { createSurfacePvConfig, DEFAULT_BATTERY_CONFIG } from './shared/buildingDefaults';
 import type { PvConfig, BatteryConfig } from './shared/buildingDefaults';
 
 const SURFACE_DEFAULTS: Record<BuildingElement['type'], Omit<BuildingElement, 'id' | 'label'>> = {
@@ -153,18 +152,6 @@ const ENERGY_ITEMS = [
 
 // --- Direction label helper ---------------------------------------------------
 
-/** Short compass or positional label for a surface, used in the sibling strip. */
-function surfaceDirLabel(el: BuildingElement): string {
-  if (el.type === 'floor') return 'Base';
-  if (el.type === 'roof' && el.tilt <= 10) return 'Top';
-  const MAP: Record<string, string> = {
-    north_wall: 'N',  northeast_wall: 'NE',
-    east_wall:  'E',  southeast_wall: 'SE',
-    south_wall: 'S',  southwest_wall: 'SW',
-    west_wall:  'W',  northwest_wall: 'NW',
-  };
-  return MAP[faceFromAzimuth(el.azimuth)] ?? '—';
-}
 
 // --- Header icon button (local — only used in this file) ----------------------
 
@@ -233,7 +220,6 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
   /** The group type currently driving the surface-group grid in the center panel. */
   const [activeGroupType, setActiveGroupType] = useState<ElementGroupKey | null>(null);
   /** Whether the roof-type accordion is expanded while editing a roof surface. */
-  const [roofTypeOpen, setRoofTypeOpen] = useState(false);
   // Per-surface PV configurations — keyed by element ID.
   const [surfacePvConfigs, setSurfacePvConfigs] = useState<Record<string, PvConfig>>({});
   // True when a roof-type change removed surfaces that had PV installed.
@@ -377,7 +363,8 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
     setElements((prev) => ({ ...prev, [next.id]: next }));
     setSelectedId(next.id);
     setSurfaceEditorTab('properties');
-    setPanelView('surface');
+    setPanelView('surface-group');
+    setActiveGroupType(type as ElementGroupKey);
     setWorkspaceView('configure');
 
     const group = elementToGroup(next);
@@ -390,7 +377,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
   const handleSelectElement = (id: string) => {
     setSelectedId(id);
     setSurfaceEditorTab('properties');
-    setPanelView('surface');
+    setPanelView('surface-group');
     setActiveGroupType((elements[id]?.type as ElementGroupKey) ?? null);
     setWorkspaceView('configure');
   };
@@ -468,7 +455,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
   const handleEditPvSurface = (surfaceId: string) => {
     setSelectedId(surfaceId);
     setSurfaceEditorTab('pv');
-    setPanelView('surface');
+    setPanelView('surface-group');
     setWorkspaceView('configure');
 
     const el = elements[surfaceId];
@@ -490,7 +477,6 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
       const hadPv = oldRoofIds.some((id) => surfacePvConfigs[id]?.installed);
       if (hadPv) {
         setPvInvalidated(true);
-        // Remove PV configs for the replaced surfaces
         setSurfacePvConfigs((pv) => {
           const next = { ...pv };
           oldRoofIds.forEach((id) => { delete next[id]; });
@@ -502,6 +488,10 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
       );
       return { ...withoutRoofs, ...newRoofElements };
     });
+    // After regenerating, show the roof surface grid so the new cards are visible.
+    setSelectedId(null);
+    setActiveGroupType('roof');
+    setPanelView('surface-group');
   };
 
   const setGen = (key: string, value: any) =>
@@ -520,7 +510,8 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
       setSelectedId(firstEl.id);
       setActiveGroupType(firstEl.type as ElementGroupKey);
       setSurfaceEditorTab('properties');
-      setPanelView('surface');
+      setPanelView('surface-group');
+      setWorkspaceView('configure');
     }
     if (group.face !== 'roof' && group.face !== 'floor') {
       const idx = VIEW_ORDER.findIndex((v) => v.frontWallId === group.face);
@@ -533,7 +524,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
   const handleElementSelect = (elementId: string) => {
     setSelectedId(elementId);
     setSurfaceEditorTab('properties');
-    setPanelView('surface');
+    setPanelView('surface-group');
     const el = elements[elementId];
     if (el) {
       setActiveGroupType(el.type as ElementGroupKey);
@@ -874,6 +865,20 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
                       onApplyRoofType={activeGroupType === 'roof' ? handleApplyRoofType : undefined}
                       onCreateSurface={createSurface}
                       surfacePvConfigs={surfacePvConfigs}
+                      editorSlot={selectedId ? (
+                        <SurfaceGroupEditor
+                          selectedElementId={selectedId}
+                          elements={elements}
+                          onUpdateElement={updateElement}
+                          onRenameElement={renameElement}
+                          preferredTab={surfaceEditorTab}
+                          surfacePvConfig={surfacePvConfigs[selectedId] ?? null}
+                          onUpdatePv={(patch) => updateSurfacePv(selectedId, patch)}
+                          onDeleteSurface={deleteSurface}
+                          mode={mode}
+                          embedded
+                        />
+                      ) : undefined}
                     />
                   ) : panelView === 'technology-pv' ? (
                     <PvSurfaceManager
@@ -890,108 +895,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
                       onUpdate={updateBattery}
                       mode={mode}
                     />
-                  ) : (
-                    <>
-                      {/* Sibling surface strip — lets the user switch surfaces without going back */}
-                      {activeGroupType && selectedId && (() => {
-                        const siblings = Object.values(elements)
-                          .filter((el) => el.type === activeGroupType)
-                          .sort((a, b) => a.azimuth - b.azimuth);
-                        return (
-                          <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border/60 bg-white px-4 py-2">
-                            {siblings.map((el) => {
-                              const isCurrent = el.id === selectedId;
-                              return (
-                                <button
-                                  key={el.id}
-                                  type="button"
-                                  onClick={() => handleElementSelect(el.id)}
-                                  className={cn(
-                                    'flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[10px] font-medium transition-all cursor-pointer',
-                                    isCurrent
-                                      ? 'border-primary/40 bg-primary/10 text-primary'
-                                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
-                                  )}
-                                >
-                                  <span
-                                    className="size-1.5 shrink-0 rounded-full"
-                                    style={{ backgroundColor: ELEMENT_DOTS[el.type] }}
-                                  />
-                                  {el.label}
-                                  <span className={cn(
-                                    'shrink-0 rounded px-1 py-0.5 text-[9px] font-bold',
-                                    isCurrent ? 'bg-primary/15 text-primary' : 'bg-slate-100 text-slate-500',
-                                  )}>
-                                    {surfaceDirLabel(el)}
-                                  </span>
-                                </button>
-                              );
-                            })}
-                            {/* Add another surface of the same type */}
-                            <button
-                              type="button"
-                              title={`Add new ${activeGroupType}`}
-                              onClick={() => createSurface(activeGroupType)}
-                              className="flex shrink-0 items-center justify-center rounded-md border border-dashed border-slate-300 px-2.5 py-1.5 text-slate-400 transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary cursor-pointer"
-                            >
-                              <Plus className="size-3.5" />
-                            </button>
-                          </div>
-                        );
-                      })()}
-                      {/* Roof-type accordion — shown inline when editing a roof surface */}
-                      {activeGroupType === 'roof' && (() => {
-                        const roofItems = Object.values(elements).filter((el) => el.type === 'roof');
-                        const currentType = detectRoofType(roofItems);
-                        const typeLabel = currentType
-                          ? currentType.charAt(0).toUpperCase() + currentType.slice(1)
-                          : null;
-                        return (
-                          <div className="shrink-0 overflow-hidden border-b border-border/60 bg-white">
-                            <button
-                              type="button"
-                              onClick={() => setRoofTypeOpen((v) => !v)}
-                              className="flex w-full items-center justify-between bg-amber-50 px-4 py-3 text-left transition-colors hover:bg-amber-100 cursor-pointer"
-                            >
-                              <div className="flex items-center gap-2">
-                                <svg className="size-3.5 text-amber-600" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9.5L12 3l9 6.5V21H3V9.5z"/></svg>
-                                <p className="text-sm font-semibold text-amber-900">Roof Type</p>
-                                {typeLabel && (
-                                  <span className="rounded-md border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                                    {typeLabel}
-                                  </span>
-                                )}
-                                <span className="text-[10px] text-amber-600">· click to change</span>
-                              </div>
-                              <ChevronDown className={cn(
-                                'size-3.5 shrink-0 text-amber-500 transition-transform duration-200',
-                                roofTypeOpen && 'rotate-180',
-                              )} />
-                            </button>
-                            <div className={cn(
-                              'overflow-hidden transition-[max-height] duration-300 ease-in-out',
-                              roofTypeOpen ? 'max-h-[400px]' : 'max-h-0',
-                            )}>
-                              <div className="border-t border-slate-100 px-4 pb-4 pt-3">
-                                <RoofTypeCards elements={elements} onApplyRoofType={handleApplyRoofType} />
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })()}
-                      <SurfaceGroupEditor
-                        selectedElementId={selectedId}
-                        elements={elements}
-                        onUpdateElement={updateElement}
-                        onRenameElement={renameElement}
-                        preferredTab={surfaceEditorTab}
-                        surfacePvConfig={selectedId ? (surfacePvConfigs[selectedId] ?? null) : null}
-                        onUpdatePv={(patch) => { if (selectedId) updateSurfacePv(selectedId, patch); }}
-                        onDeleteSurface={deleteSurface}
-                        mode={mode}
-                      />
-                    </>
-                  )}
+                  ) : null}
                   </div>
                 </div>
 

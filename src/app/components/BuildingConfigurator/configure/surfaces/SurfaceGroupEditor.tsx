@@ -683,11 +683,13 @@ interface SurfaceGroupEditorProps {
   /** Called when the user deletes this surface (user-defined surfaces only). */
   onDeleteSurface?: (id: string) => void;
   mode?: 'basic' | 'expert';
+  /** When true, renders in a plain div instead of a scroll container (for inline embedding). */
+  embedded?: boolean;
 }
 
 export function SurfaceGroupEditor({
   selectedElementId, elements, onUpdateElement,
-  onRenameElement, preferredTab = 'properties', surfacePvConfig, onUpdatePv, onDeleteSurface, mode = 'basic',
+  onRenameElement, preferredTab = 'properties', surfacePvConfig, onUpdatePv, onDeleteSurface, mode = 'basic', embedded = false,
 }: SurfaceGroupEditorProps) {
   const [activeTab, setActiveTab] = useState<'properties' | 'pv'>('properties');
 
@@ -697,6 +699,7 @@ export function SurfaceGroupEditor({
   const el = selectedElementId ? elements[selectedElementId] : null;
 
   if (!el) {
+    if (embedded) return null;
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
         <div className="flex size-12 items-center justify-center rounded-xl border border-slate-200 bg-slate-50">
@@ -722,9 +725,10 @@ export function SurfaceGroupEditor({
   const hasTransmission   = el.type !== 'window';
 
   const rValue = el.uValue > 0 ? (1 / el.uValue).toFixed(3) : '∞';
+  const Wrapper = embedded ? 'div' : ScrollHintContainer;
 
   return (
-    <ScrollHintContainer className="flex flex-col p-5">
+    <Wrapper className="flex flex-col p-5">
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="mb-4 flex items-start gap-3">
@@ -771,6 +775,17 @@ export function SurfaceGroupEditor({
           </p>
         </div>
       </div>
+
+      {activeTab === 'properties' && warnings.length > 0 && (
+        <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+          <div className="flex flex-col gap-1">
+            {warnings.map((w, i) => (
+              <p key={i} className="text-[10px] leading-snug text-amber-700">{w}</p>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Tab bar ─────────────────────────────────────────────────────────── */}
       <div className="mb-3">
@@ -886,16 +901,6 @@ export function SurfaceGroupEditor({
             )}
           </div>
 
-          {warnings.length > 0 && (
-            <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
-              <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
-              <div className="flex flex-col gap-1">
-                {warnings.map((w, i) => (
-                  <p key={i} className="text-[10px] leading-snug text-amber-700">{w}</p>
-                ))}
-              </div>
-            </div>
-          )}
         </>
       )}
 
@@ -909,6 +914,6 @@ export function SurfaceGroupEditor({
         />
       )}
 
-    </ScrollHintContainer>
+    </Wrapper>
   );
 }
