@@ -5,7 +5,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
   Download, Upload, X, Building2, RotateCcw, Check, AlertTriangle,
-  Flame, Zap, Droplets, Gauge, Plus,
+  Flame, Zap, Droplets, Gauge, Plus, ChevronDown,
 } from 'lucide-react';
 
 import { BuildingVisualization, VIEW_ORDER } from './configure/visualization/BuildingVisualization';
@@ -38,6 +38,7 @@ import { EnergyEnvelopeColumn } from './overview/EnergyEnvelopeColumn';
 import { SurfaceGroupSelector } from './configure/surfaces/SurfaceGroupSelector';
 import { SurfaceGroupGrid } from './configure/surfaces/SurfaceGroupGrid';
 import { SurfaceGroupEditor } from './configure/surfaces/SurfaceGroupEditor';
+import { RoofTypeCards, detectRoofType } from './configure/roof/RoofTypeGallery';
 import { BuildingEditor } from './configure/building/BuildingEditor';
 import { PvSurfaceManager } from './configure/pv/PvSurfaceManager';
 import { BatteryEditor } from './configure/pv/BatteryEditor';
@@ -227,10 +228,12 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
   const [general,       setGeneralRaw]    = useState(initialGeneral);
   const [roofConfig,    setRoofConfig]    = useState<RoofConfig>(DEFAULT_ROOF_CONFIG);
   const [selectedId,    setSelectedId]    = useState<string | null>(null);
-  const [surfaceEditorTab, setSurfaceEditorTab] = useState<'geometry' | 'thermal' | 'pv'>('geometry');
+  const [surfaceEditorTab, setSurfaceEditorTab] = useState<'properties' | 'pv'>('properties');
   const [panelView,     setPanelView]     = useState<'building' | 'surface' | 'surface-group' | 'technology-pv' | 'technology-battery'>('building');
   /** The group type currently driving the surface-group grid in the center panel. */
   const [activeGroupType, setActiveGroupType] = useState<ElementGroupKey | null>(null);
+  /** Whether the roof-type accordion is expanded while editing a roof surface. */
+  const [roofTypeOpen, setRoofTypeOpen] = useState(false);
   // Per-surface PV configurations — keyed by element ID.
   const [surfacePvConfigs, setSurfacePvConfigs] = useState<Record<string, PvConfig>>({});
   // True when a roof-type change removed surfaces that had PV installed.
@@ -307,7 +310,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
     setEnergyTotals(nextTotals);
     setSelectedId(null);
     setActiveGroupType(null);
-    setSurfaceEditorTab('geometry');
+    setSurfaceEditorTab('properties');
     setPanelView('building');
     setUploadError(null);
     setSurfacePvConfigs({});
@@ -373,7 +376,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
     const next = buildNewSurface(type, elements);
     setElements((prev) => ({ ...prev, [next.id]: next }));
     setSelectedId(next.id);
-    setSurfaceEditorTab('geometry');
+    setSurfaceEditorTab('properties');
     setPanelView('surface');
     setWorkspaceView('configure');
 
@@ -386,7 +389,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
 
   const handleSelectElement = (id: string) => {
     setSelectedId(id);
-    setSurfaceEditorTab('geometry');
+    setSurfaceEditorTab('properties');
     setPanelView('surface');
     setActiveGroupType((elements[id]?.type as ElementGroupKey) ?? null);
     setWorkspaceView('configure');
@@ -395,7 +398,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
   const handleBuildingSelect = () => {
     setSelectedId(null);
     setActiveGroupType(null);
-    setSurfaceEditorTab('geometry');
+    setSurfaceEditorTab('properties');
     setPanelView('building');
     setWorkspaceView('configure');
   };
@@ -516,7 +519,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
     if (firstEl) {
       setSelectedId(firstEl.id);
       setActiveGroupType(firstEl.type as ElementGroupKey);
-      setSurfaceEditorTab('geometry');
+      setSurfaceEditorTab('properties');
       setPanelView('surface');
     }
     if (group.face !== 'roof' && group.face !== 'floor') {
@@ -529,7 +532,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
    *  Sets the selected element, switches to surface panel, and rotates the 3D preview to its face direction. */
   const handleElementSelect = (elementId: string) => {
     setSelectedId(elementId);
-    setSurfaceEditorTab('geometry');
+    setSurfaceEditorTab('properties');
     setPanelView('surface');
     const el = elements[elementId];
     if (el) {
@@ -935,11 +938,45 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
                           </div>
                         );
                       })()}
+                      {/* Roof-type accordion — shown inline when editing a roof surface */}
+                      {activeGroupType === 'roof' && (() => {
+                        const roofItems = Object.values(elements).filter((el) => el.type === 'roof');
+                        const currentType = detectRoofType(roofItems);
+                        const typeLabel = currentType
+                          ? currentType.charAt(0).toUpperCase() + currentType.slice(1)
+                          : null;
+                        return (
+                          <div className="shrink-0 overflow-hidden border-b border-border/60 bg-white">
+                            <button
+                              type="button"
+                              onClick={() => setRoofTypeOpen((v) => !v)}
+                              className="flex w-full items-center justify-between px-4 py-2.5 text-left transition-colors hover:bg-slate-50 cursor-pointer"
+                            >
+                              <div className="flex items-center gap-2">
+                                <p className="text-[11px] font-semibold text-slate-700">Roof Type</p>
+                                {typeLabel && (
+                                  <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                                    {typeLabel}
+                                  </span>
+                                )}
+                              </div>
+                              <ChevronDown className={cn(
+                                'size-3.5 shrink-0 text-slate-400 transition-transform duration-200',
+                                roofTypeOpen && 'rotate-180',
+                              )} />
+                            </button>
+                            {roofTypeOpen && (
+                              <div className="border-t border-slate-100 px-4 pb-4 pt-3">
+                                <RoofTypeCards elements={elements} onApplyRoofType={handleApplyRoofType} />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                       <SurfaceGroupEditor
                         selectedElementId={selectedId}
                         elements={elements}
                         onUpdateElement={updateElement}
-                        onEnableCustomMode={enableCustomMode}
                         onRenameElement={renameElement}
                         preferredTab={surfaceEditorTab}
                         surfacePvConfig={selectedId ? (surfacePvConfigs[selectedId] ?? null) : null}

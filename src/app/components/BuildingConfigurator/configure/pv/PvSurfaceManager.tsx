@@ -59,12 +59,20 @@ function scorePvSurface(el: BuildingElement): number | null {
 
   // Angle from south (0 = south, 180 = north)
   const azDiff = Math.min(Math.abs(el.azimuth - 180), 360 - Math.abs(el.azimuth - 180));
-  const azScore = 0.3 + 0.7 * (1 - azDiff / 180);
+
+  // Steeply-tilted surfaces facing more than 90° from south get no solar gain in the
+  // northern hemisphere — exclude them entirely from recommendations.
+  // Flat/low-tilt surfaces (≤ 10°) are orientation-agnostic.
+  if (el.tilt > 10 && azDiff > 90) return null;
+
+  // Cosine-based azimuth score: 1.0 south, 0 east/west.
+  // Flat surfaces are unaffected by azimuth so receive full score.
+  const azScore = el.tilt <= 10
+    ? 1.0
+    : Math.max(0, Math.cos((azDiff * Math.PI) / 180));
 
   const tiltScore = Math.max(0, 1 - Math.abs(el.tilt - 35) / 70);
-
   const areaScore = Math.min(1, el.area / 40);
-
   const typeBonus = el.type === 'roof' ? 1.1 : 1.0;
 
   return Math.min(1, (0.4 * azScore + 0.35 * tiltScore + 0.25 * areaScore) * typeBonus);
@@ -245,7 +253,7 @@ export function PvSurfaceManager({
           <div className="mb-2 flex items-center gap-1.5">
             <Sparkles className="size-3 text-slate-400" />
             <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-              Suggestions — not yet installed
+              Suggestions - not yet installed
             </p>
           </div>
           <p className="mb-2.5 text-[10px] leading-snug text-slate-400">
