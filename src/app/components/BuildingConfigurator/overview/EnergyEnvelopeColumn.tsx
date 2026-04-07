@@ -2,11 +2,12 @@
 
 import React from 'react';
 import { ScrollHintContainer } from '@/app/components/BuildingConfigurator/shared/ui';
-import { LoadProfileViewer, type LoadDataPoint } from './LoadProfileViewer';
+import { LoadProfileViewer } from './LoadProfileViewer';
 import type { BuildingElement } from '@/app/components/BuildingConfigurator/configure/model/buildingElements';
 import type { RoofConfig } from '@/app/components/BuildingConfigurator/configure/model/roof';
 import { ElementCompositionSection } from './ElementCompositionSection';
 import { TechnologiesSection } from './TechnologiesSection';
+import type { LoadDataPoint } from '../../../lib/loadProfile';
 
 interface PvSummary {
   installed: boolean;
