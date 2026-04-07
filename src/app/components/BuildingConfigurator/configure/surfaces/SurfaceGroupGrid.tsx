@@ -204,17 +204,15 @@ export function SurfaceGroupGrid({
                   </div>
                 </button>
 
-                {/* Delete — hover, user-defined surfaces only */}
-                {userDefined && (
-                  <button
-                    type="button"
-                    title="Delete surface"
-                    onClick={() => onDeleteSurface(el.id)}
-                    className="invisible absolute right-1.5 top-1.5 flex size-5 cursor-pointer items-center justify-center rounded bg-white/80 text-slate-400 shadow-sm transition-colors hover:bg-red-50 hover:text-red-500 group-hover:visible [&_svg]:size-3"
-                  >
-                    <Trash2 />
-                  </button>
-                )}
+                {/* Delete — hover on all surfaces */}
+                <button
+                  type="button"
+                  title="Delete surface"
+                  onClick={() => onDeleteSurface(el.id)}
+                  className="invisible absolute right-1.5 top-1.5 flex size-5 cursor-pointer items-center justify-center rounded bg-white/80 text-slate-400 shadow-sm transition-colors hover:bg-red-50 hover:text-red-500 group-hover:visible [&_svg]:size-3"
+                >
+                  <Trash2 />
+                </button>
               </div>
             );
           })}

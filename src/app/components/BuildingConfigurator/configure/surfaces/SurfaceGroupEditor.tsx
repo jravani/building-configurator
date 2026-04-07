@@ -3,11 +3,11 @@
 // The custom-mode toggle lives in the header — no separate banner row.
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronUp, ChevronDown, Info, Layers, AlertTriangle, Wand2, Sun, Pencil, Check, X, RotateCcw, Trash2 } from 'lucide-react';
+import { ChevronUp, ChevronDown, Info, Layers, AlertTriangle, Sun, Pencil, Check, X, RotateCcw, Trash2 } from 'lucide-react';
 import { ELEMENT_DOTS, SegmentedControl, ToggleSwitch, NumberInput, FieldLabel, ScrollHintContainer } from '@/app/components/BuildingConfigurator/shared/ui';
 import { createSurfacePvConfig, type PvConfig } from '@/app/components/BuildingConfigurator/shared/buildingDefaults';
 import type { BuildingElement } from '@/app/components/BuildingConfigurator/configure/model/buildingElements';
-import { elementToGroup, isElementEditable, isUserDefinedElement } from '@/app/components/BuildingConfigurator/configure/model/buildingElements';
+import { elementToGroup, isUserDefinedElement } from '@/app/components/BuildingConfigurator/configure/model/buildingElements';
 
 // ─── Exported patch type ───────────────────────────────────────────────────────
 
@@ -61,85 +61,49 @@ interface SpinnerProps {
   min?: number;
   max?: number;
   step?: number;
+  decimals?: number;
+  unit?: string;
   narrow?: boolean;
   disabled?: boolean;
   onChange: (v: number) => void;
 }
 
-function NumberSpinner({ value, min = 0, max = 360, step = 1, narrow = false, disabled = false, onChange }: SpinnerProps) {
-  const [draft, setDraft] = useState(String(Math.round(value)));
+function NumberSpinner({ value, min = 0, max = 360, step = 1, decimals = 0, unit = '°', narrow = false, disabled = false, onChange }: SpinnerProps) {
+  const fmt = (v: number) => decimals > 0 ? v.toFixed(decimals) : String(Math.round(v));
+  const [draft, setDraft] = useState(fmt(value));
 
-  useEffect(() => { setDraft(String(Math.round(value))); }, [value]);
+  useEffect(() => { setDraft(fmt(value)); }, [value, decimals]);
 
   const clamp = (v: number) => Math.max(min, Math.min(max, v));
 
   const commit = () => {
     const n = parseFloat(draft);
     if (Number.isFinite(n)) onChange(clamp(n));
-    else setDraft(String(Math.round(value)));
+    else setDraft(fmt(value));
   };
 
   return (
     <div className="flex items-center gap-1.5">
       <div className={`flex items-center overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${narrow ? 'w-[80px]' : 'w-[96px]'} ${disabled ? 'opacity-50' : ''}`}>
         <input
-          type="number" min={min} max={max} value={draft} disabled={disabled}
+          type="number" min={min} max={max} step={step} value={draft} disabled={disabled}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }}
           className="min-w-0 flex-1 bg-transparent px-2 py-2 text-right text-xl font-bold text-slate-800 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         />
         <div className="flex shrink-0 flex-col border-l border-slate-200">
-          <button type="button" disabled={disabled} onClick={() => onChange(clamp(Math.round(value) + step))}
+          <button type="button" disabled={disabled} onClick={() => onChange(clamp(parseFloat((value + step).toFixed(decimals))))}
             className="flex h-6 w-7 items-center justify-center border-b border-slate-200 bg-slate-800 text-white transition-colors enabled:cursor-pointer enabled:hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400">
             <ChevronUp className="size-3" />
           </button>
-          <button type="button" disabled={disabled} onClick={() => onChange(clamp(Math.round(value) - step))}
+          <button type="button" disabled={disabled} onClick={() => onChange(clamp(parseFloat((value - step).toFixed(decimals))))}
             className="flex h-6 w-7 items-center justify-center bg-slate-800 text-white transition-colors enabled:cursor-pointer enabled:hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400">
             <ChevronDown className="size-3" />
           </button>
         </div>
       </div>
-      <span className="text-[20px] text-slate-400">°</span>
-    </div>
-  );
-}
-
-// ─── Area spinner ─────────────────────────────────────────────────────────────
-
-function AreaSpinner({ value, disabled = false, onChange }: { value: number; disabled?: boolean; onChange: (v: number) => void }) {
-  const [draft, setDraft] = useState(value.toFixed(1));
-
-  useEffect(() => { setDraft(value.toFixed(1)); }, [value]);
-
-  const commit = () => {
-    const n = parseFloat(draft);
-    if (Number.isFinite(n) && n > 0) onChange(n);
-    else setDraft(value.toFixed(1));
-  };
-
-  return (
-    <div className="flex items-center gap-1.5">
-      <div className={`flex flex-1 items-center overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${disabled ? 'opacity-50' : ''}`}>
-        <input
-          type="number" step={0.1} min={0.1} value={draft} disabled={disabled}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }}
-          className="min-w-0 flex-1 bg-transparent px-3 py-2 text-right text-xl font-bold text-slate-800 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-        />
-        <div className="flex shrink-0 flex-col border-l border-slate-200">
-          <button type="button" disabled={disabled} onClick={() => onChange(Math.max(0.1, parseFloat(draft || '0') + 1))}
-            className="flex h-6 w-7 items-center justify-center border-b border-slate-200 bg-slate-800 text-white transition-colors enabled:cursor-pointer enabled:hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400">
-            <ChevronUp className="size-3" />
-          </button>
-          <button type="button" disabled={disabled} onClick={() => onChange(Math.max(0.1, parseFloat(draft || '0') - 1))}
-            className="flex h-6 w-7 items-center justify-center bg-slate-800 text-white transition-colors enabled:cursor-pointer enabled:hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400">
-            <ChevronDown className="size-3" />
-          </button>
-        </div>
-      </div>
-      <span className="text-[11px] text-slate-400">m²</span>
+      <span className={unit === '°' ? 'text-[20px] text-slate-400' : 'text-[11px] text-slate-400'}>{unit}</span>
     </div>
   );
 }
@@ -228,17 +192,17 @@ function TiltVisual({ tilt, disabled = false, onChange }: { tilt: number; disabl
 function TiltControl({ value, disabled = false, onChange }: { value: number; disabled?: boolean; onChange: (v: number) => void }) {
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-1">
-        <span className="text-[12px] font-semibold text-slate-700">Tilt</span>
-        <Info className="size-3 text-slate-400" />
-      </div>
-      <div className="flex items-center gap-5">
-        <TiltVisual tilt={value} disabled={disabled} onChange={onChange} />
-        <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1">
+          <span className="text-[12px] font-semibold text-slate-700">Tilt</span>
+          <Info className="size-3 text-slate-400" />
+        </div>
+        <div className="flex flex-col items-end gap-1">
           <NumberSpinner value={value} min={0} max={90} disabled={disabled} onChange={onChange} />
           <p className="text-[10px] text-slate-500">{tiltLabel(value)}</p>
         </div>
       </div>
+      <TiltVisual tilt={value} disabled={disabled} onChange={onChange} />
     </div>
   );
 }
@@ -328,17 +292,17 @@ function CompassRose({ azimuth, disabled = false, onChange }: { azimuth: number;
 function AzimuthControl({ value, disabled = false, onChange }: { value: number; disabled?: boolean; onChange: (v: number) => void }) {
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-1">
-        <span className="text-[12px] font-semibold text-slate-700">Azimuth</span>
-        <Info className="size-3 text-slate-400" />
-      </div>
-      <div className="flex items-center gap-10">
-        <CompassRose azimuth={value} disabled={disabled} onChange={onChange} />
-        <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1">
+          <span className="text-[12px] font-semibold text-slate-700">Azimuth</span>
+          <Info className="size-3 text-slate-400" />
+        </div>
+        <div className="flex flex-col items-end gap-1">
           <NumberSpinner value={value} min={0} max={359} disabled={disabled} onChange={onChange} />
           <p className="text-[10px] text-slate-500">{azimuthDirectionLabel(value)}</p>
         </div>
       </div>
+      <CompassRose azimuth={value} disabled={disabled} onChange={onChange} />
     </div>
   );
 }
@@ -358,17 +322,17 @@ function ThermalReadRow({ label, value, unit }: { label: string; value: string; 
   );
 }
 
-/** Click-to-edit inline field for numeric thermal values. */
+/** Click-to-edit inline field for numeric values. */
 function ThermalEditRow({
-  label, value, unit, disabled = false, min = 0.001, max, step = 0.01, onSave,
+  label, value, unit, disabled = false, min = 0.001, max, step = 0.01, decimals = 2, onSave,
 }: {
   label: string; value: number; unit: string; disabled?: boolean;
-  min?: number; max?: number; step?: number; onSave: (v: number) => void;
+  min?: number; max?: number; step?: number; decimals?: number; onSave: (v: number) => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [draft,   setDraft]   = useState(value.toFixed(2));
+  const [draft,   setDraft]   = useState(value.toFixed(decimals));
 
-  useEffect(() => { setDraft(value.toFixed(2)); setEditing(false); }, [value]);
+  useEffect(() => { setDraft(value.toFixed(decimals)); setEditing(false); }, [value, decimals]);
 
   const commit = () => {
     const n = parseFloat(draft);
@@ -388,7 +352,7 @@ function ThermalEditRow({
             onBlur={commit}
             onKeyDown={(e) => {
               if (e.key === 'Enter')  { e.preventDefault(); commit(); }
-              if (e.key === 'Escape') { setEditing(false); setDraft(value.toFixed(2)); }
+              if (e.key === 'Escape') { setEditing(false); setDraft(value.toFixed(decimals)); }
             }}
             className="w-20 rounded border border-blue-300 bg-white px-2 py-0.5 text-right text-[11px] font-medium text-slate-700 outline-none ring-1 ring-blue-200 focus:ring-blue-400"
           />
@@ -397,13 +361,13 @@ function ThermalEditRow({
       ) : (
         disabled ? (
           <div className="flex items-baseline gap-1 opacity-50">
-            <span className="text-[12px] font-semibold text-slate-800">{value.toFixed(2)}</span>
+            <span className="text-[12px] font-semibold text-slate-800">{value.toFixed(decimals)}</span>
             <span className="text-[10px] text-slate-400">{unit}</span>
           </div>
         ) : (
           <button type="button" onClick={() => setEditing(true)}
             className="flex cursor-pointer items-baseline gap-1 rounded px-1.5 py-0.5 hover:bg-slate-100 group-hover/row:ring-1 group-hover/row:ring-slate-200">
-            <span className="text-[12px] font-semibold text-slate-800">{value.toFixed(2)}</span>
+            <span className="text-[12px] font-semibold text-slate-800">{value.toFixed(decimals)}</span>
             <span className="text-[10px] text-slate-400">{unit}</span>
           </button>
         )
@@ -704,11 +668,10 @@ interface SurfaceGroupEditorProps {
   selectedElementId: string | null;
   elements: Record<string, BuildingElement>;
   onUpdateElement: (id: string, patch: Partial<BuildingElement>) => void;
-  onEnableCustomMode: (id: string) => void;
   /** Renames a surface label without requiring custom mode — display-only field. */
   onRenameElement?: (id: string, label: string) => void;
   /** Which tab to open when a surface is selected from another workflow. */
-  preferredTab?: 'geometry' | 'thermal' | 'pv';
+  preferredTab?: 'properties' | 'pv';
   /** Per-surface PV config for the selected element, or null if none exists yet. */
   surfacePvConfig: PvConfig | null;
   /** Called when the user modifies the PV config for the selected surface. */
@@ -719,10 +682,10 @@ interface SurfaceGroupEditorProps {
 }
 
 export function SurfaceGroupEditor({
-  selectedElementId, elements, onUpdateElement, onEnableCustomMode,
-  onRenameElement, preferredTab = 'geometry', surfacePvConfig, onUpdatePv, onDeleteSurface, mode = 'basic',
+  selectedElementId, elements, onUpdateElement,
+  onRenameElement, preferredTab = 'properties', surfacePvConfig, onUpdatePv, onDeleteSurface, mode = 'basic',
 }: SurfaceGroupEditorProps) {
-  const [activeTab, setActiveTab] = useState<'geometry' | 'thermal' | 'pv'>('geometry');
+  const [activeTab, setActiveTab] = useState<'properties' | 'pv'>('properties');
 
   // Reset tab when a different element is selected
   useEffect(() => { setActiveTab(preferredTab); }, [preferredTab, selectedElementId]);
@@ -751,7 +714,6 @@ export function SurfaceGroupEditor({
   const warnings          = getWarnings(el);
   const save              = (patch: Partial<BuildingElement>) => onUpdateElement(selectedElementId!, patch);
   const userDefined       = isUserDefinedElement(el);
-  const isImported        = el.source === 'city' || el.source === 'default';
   const isWindow          = el.type === 'window';
   const hasTransmission   = el.type !== 'window';
 
@@ -781,8 +743,8 @@ export function SurfaceGroupEditor({
               </span>
             )}
 
-            {/* Delete button — user-defined surfaces only */}
-            {userDefined && onDeleteSurface && (
+            {/* Delete button — available for all surfaces */}
+            {onDeleteSurface && (
               <button
                 type="button"
                 title="Delete surface"
@@ -811,19 +773,20 @@ export function SurfaceGroupEditor({
         <SegmentedControl
           fullWidth
           options={[
-            { value: 'geometry', label: 'Geometry' },
-            { value: 'thermal',  label: 'Thermal'  },
-            { value: 'pv',       label: 'PV'        },
+            { value: 'properties', label: 'Properties' },
+            { value: 'pv',         label: 'PV'         },
           ]}
           value={activeTab}
-          onChange={(v) => setActiveTab(v as 'geometry' | 'thermal' | 'pv')}
+          onChange={(v) => setActiveTab(v as 'properties' | 'pv')}
         />
       </div>
 
-      {/* ── Geometry tab ────────────────────────────────────────────────────── */}
-      {activeTab === 'geometry' && (
+      {/* ── Properties tab — geometry + thermal combined ─────────────────── */}
+      {activeTab === 'properties' && (
         <>
           <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-4 shadow-sm">
+
+            {/* Orientation */}
             <div className="grid grid-cols-2 gap-4">
               <TiltControl value={el.tilt} disabled={false} onChange={(v) => save({ tilt: v })} />
               <div className="border-l border-slate-200 pl-4">
@@ -831,12 +794,25 @@ export function SurfaceGroupEditor({
               </div>
             </div>
 
-            <div className="mt-4 border-t border-slate-200 pt-4">
-              <span className="mb-2 block text-[12px] font-semibold text-slate-700">Area</span>
-              <AreaSpinner value={el.area} disabled={false} onChange={(v) => save({ area: v })} />
+            {/* Area + U-value */}
+            <div className="mt-4 border-t border-slate-200 pt-4 grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-3">
+                <span className="text-[12px] font-semibold text-slate-700">Area</span>
+                <NumberSpinner
+                  value={el.area} min={0.1} max={100000} step={1} decimals={1} unit="m²"
+                  onChange={(v) => save({ area: Math.max(0.1, v) })}
+                />
+              </div>
+              <div className="border-l border-slate-200 pl-4 flex flex-col gap-3">
+                <span className="text-[12px] font-semibold text-slate-700">U-value</span>
+                <NumberSpinner
+                  value={el.uValue} min={0.01} max={10} step={0.01} decimals={2} unit="W/m²K"
+                  onChange={(v) => save({ uValue: Math.max(0.01, v) })}
+                />
+              </div>
             </div>
 
-            {/* Reset to imported values — only when custom mode is on and something has drifted */}
+            {/* Reset to imported values */}
             {el.defaultTilt !== undefined && (
               el.tilt !== el.defaultTilt || el.azimuth !== el.defaultAzimuth || el.area !== el.defaultArea
             ) && (
@@ -854,6 +830,56 @@ export function SurfaceGroupEditor({
                 </button>
               </div>
             )}
+
+            {/* Expert thermal fields */}
+            {mode === 'expert' && (
+              <div className="mt-4 border-t border-slate-200 pt-4 flex flex-col gap-3">
+                <ThermalReadRow label="R-value (1/U)" value={rValue} unit="m²K/W" />
+
+                {isWindow && (
+                  <ThermalEditRow
+                    label="g-value (SHGC)"
+                    value={el.gValue ?? 0.6}
+                    unit="–"
+                    disabled={false}
+                    min={0} max={1} step={0.01}
+                    onSave={(v) => save({ gValue: Math.min(1, Math.max(0, v)) })}
+                  />
+                )}
+
+                {!isWindow && el.dInsulation !== undefined && (
+                  <ThermalEditRow
+                    label="Insulation thickness"
+                    value={el.dInsulation}
+                    unit="m"
+                    disabled={false}
+                    min={0} max={1} step={0.01}
+                    onSave={(v) => save({ dInsulation: Math.max(0, v) })}
+                  />
+                )}
+
+                {hasTransmission && el.bTransmission !== undefined && (
+                  <ThermalEditRow
+                    label="Heat loss factor (b)"
+                    value={el.bTransmission}
+                    unit="–"
+                    disabled={false}
+                    min={0} max={1} step={0.01}
+                    onSave={(v) => save({ bTransmission: Math.min(1, Math.max(0, v)) })}
+                  />
+                )}
+
+                {el.measureType !== undefined && el.measureTypeOptions && el.measureTypeOptions.length > 0 && (
+                  <ThermalSelectRow
+                    label="Measure type"
+                    value={el.measureType}
+                    options={el.measureTypeOptions}
+                    disabled={false}
+                    onSave={(v) => save({ measureType: v })}
+                  />
+                )}
+              </div>
+            )}
           </div>
 
           {warnings.length > 0 && (
@@ -867,82 +893,6 @@ export function SurfaceGroupEditor({
             </div>
           )}
         </>
-      )}
-
-      {/* ── Thermal tab ─────────────────────────────────────────────────────── */}
-      {activeTab === 'thermal' && (
-        <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-4 shadow-sm">
-          <div className="flex flex-col gap-3">
-
-            {/* U-value — always shown */}
-            <ThermalEditRow
-              label="U-value"
-              value={el.uValue}
-              unit="W/m²K"
-              disabled={false}
-              min={0.01} max={10} step={0.01}
-              onSave={(v) => save({ uValue: Math.max(0.01, v) })}
-            />
-
-            {/* Expert fields */}
-            {mode === 'expert' && (
-              <>
-                {/* R-value — derived, read-only */}
-                <ThermalReadRow label="R-value (1/U)" value={rValue} unit="m²K/W" />
-
-                {/* g-value — windows only */}
-                {isWindow && (
-                  <ThermalEditRow
-                    label="g-value (SHGC)"
-                    value={el.gValue ?? 0.6}
-                    unit="–"
-                    disabled={false}
-                    min={0} max={1} step={0.01}
-                    onSave={(v) => save({ gValue: Math.min(1, Math.max(0, v)) })}
-                  />
-                )}
-
-                <div className="border-t border-slate-200 pt-3 flex flex-col gap-3">
-
-                  {/* Insulation thickness — opaque elements */}
-                  {!isWindow && el.dInsulation !== undefined && (
-                    <ThermalEditRow
-                      label="Insulation thickness"
-                      value={el.dInsulation}
-                      unit="m"
-                      disabled={false}
-                      min={0} max={1} step={0.01}
-                      onSave={(v) => save({ dInsulation: Math.max(0, v) })}
-                    />
-                  )}
-
-                  {/* Heat loss correction factor — non-window elements */}
-                  {hasTransmission && el.bTransmission !== undefined && (
-                    <ThermalEditRow
-                      label="Heat loss factor (b)"
-                      value={el.bTransmission}
-                      unit="–"
-                      disabled={false}
-                      min={0} max={1} step={0.01}
-                      onSave={(v) => save({ bTransmission: Math.min(1, Math.max(0, v)) })}
-                    />
-                  )}
-
-                  {/* Measure type — dropdown when options are available */}
-                  {el.measureType !== undefined && el.measureTypeOptions && el.measureTypeOptions.length > 0 && (
-                    <ThermalSelectRow
-                      label="Measure type"
-                      value={el.measureType}
-                      options={el.measureTypeOptions}
-                      disabled={false}
-                      onSave={(v) => save({ measureType: v })}
-                    />
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
       )}
 
       {/* PV tab -- surfacePvConfig is null until the user first interacts; use defaults */}
