@@ -3,7 +3,7 @@
 // The custom-mode toggle lives in the header — no separate banner row.
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronUp, ChevronDown, Info, Layers, AlertTriangle, Wand2, Sun, Pencil, Check, X, RotateCcw } from 'lucide-react';
+import { ChevronUp, ChevronDown, Info, Layers, AlertTriangle, Wand2, Sun, Pencil, Check, X, RotateCcw, Trash2 } from 'lucide-react';
 import { ELEMENT_DOTS, SegmentedControl, ToggleSwitch, NumberInput, FieldLabel, ScrollHintContainer } from '@/app/components/BuildingConfigurator/shared/ui';
 import { createSurfacePvConfig, type PvConfig } from '@/app/components/BuildingConfigurator/shared/buildingDefaults';
 import type { BuildingElement } from '@/app/components/BuildingConfigurator/configure/model/buildingElements';
@@ -713,12 +713,14 @@ interface SurfaceGroupEditorProps {
   surfacePvConfig: PvConfig | null;
   /** Called when the user modifies the PV config for the selected surface. */
   onUpdatePv: (patch: Partial<PvConfig>) => void;
+  /** Called when the user deletes this surface (user-defined surfaces only). */
+  onDeleteSurface?: (id: string) => void;
   mode?: 'basic' | 'expert';
 }
 
 export function SurfaceGroupEditor({
   selectedElementId, elements, onUpdateElement, onEnableCustomMode,
-  onRenameElement, preferredTab = 'geometry', surfacePvConfig, onUpdatePv, mode = 'basic',
+  onRenameElement, preferredTab = 'geometry', surfacePvConfig, onUpdatePv, onDeleteSurface, mode = 'basic',
 }: SurfaceGroupEditorProps) {
   const [activeTab, setActiveTab] = useState<'geometry' | 'thermal' | 'pv'>('geometry');
 
@@ -748,7 +750,6 @@ export function SurfaceGroupEditor({
   const label             = groupLabel(el);
   const warnings          = getWarnings(el);
   const save              = (patch: Partial<BuildingElement>) => onUpdateElement(selectedElementId!, patch);
-  const editable          = isElementEditable(el);
   const userDefined       = isUserDefinedElement(el);
   const isImported        = el.source === 'city' || el.source === 'default';
   const isWindow          = el.type === 'window';
@@ -773,27 +774,23 @@ export function SurfaceGroupEditor({
               onChange={(v) => onRenameElement?.(selectedElementId!, v)}
             />
 
-            {/* Source badges */}
+            {/* Source badge — user-defined surfaces only */}
             {userDefined && (
               <span className="rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
                 User defined
               </span>
             )}
-            {isImported && !editable && (
-              <span className="rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
-                Read only
-              </span>
-            )}
 
-            {/* Custom mode toggle — solid primary button, right side of header */}
-            {isImported && !editable && (
+            {/* Delete button — user-defined surfaces only */}
+            {userDefined && onDeleteSurface && (
               <button
                 type="button"
-                onClick={() => onEnableCustomMode(el.id)}
-                className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-[10px] font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+                title="Delete surface"
+                onClick={() => onDeleteSurface(el.id)}
+                className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-[10px] font-semibold text-red-600 transition-colors hover:bg-red-100 cursor-pointer"
               >
-                <Wand2 className="size-3" />
-                Enable custom mode
+                <Trash2 className="size-3" />
+                Delete
               </button>
             )}
           </div>
@@ -828,19 +825,19 @@ export function SurfaceGroupEditor({
         <>
           <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-4 shadow-sm">
             <div className="grid grid-cols-2 gap-4">
-              <TiltControl value={el.tilt} disabled={!editable} onChange={(v) => save({ tilt: v })} />
+              <TiltControl value={el.tilt} disabled={false} onChange={(v) => save({ tilt: v })} />
               <div className="border-l border-slate-200 pl-4">
-                <AzimuthControl value={el.azimuth} disabled={!editable} onChange={(v) => save({ azimuth: v })} />
+                <AzimuthControl value={el.azimuth} disabled={false} onChange={(v) => save({ azimuth: v })} />
               </div>
             </div>
 
             <div className="mt-4 border-t border-slate-200 pt-4">
               <span className="mb-2 block text-[12px] font-semibold text-slate-700">Area</span>
-              <AreaSpinner value={el.area} disabled={!editable} onChange={(v) => save({ area: v })} />
+              <AreaSpinner value={el.area} disabled={false} onChange={(v) => save({ area: v })} />
             </div>
 
             {/* Reset to imported values — only when custom mode is on and something has drifted */}
-            {editable && el.defaultTilt !== undefined && (
+            {el.defaultTilt !== undefined && (
               el.tilt !== el.defaultTilt || el.azimuth !== el.defaultAzimuth || el.area !== el.defaultArea
             ) && (
               <div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-2">
@@ -882,7 +879,7 @@ export function SurfaceGroupEditor({
               label="U-value"
               value={el.uValue}
               unit="W/m²K"
-              disabled={!editable}
+              disabled={false}
               min={0.01} max={10} step={0.01}
               onSave={(v) => save({ uValue: Math.max(0.01, v) })}
             />
@@ -899,7 +896,7 @@ export function SurfaceGroupEditor({
                     label="g-value (SHGC)"
                     value={el.gValue ?? 0.6}
                     unit="–"
-                    disabled={!editable}
+                    disabled={false}
                     min={0} max={1} step={0.01}
                     onSave={(v) => save({ gValue: Math.min(1, Math.max(0, v)) })}
                   />
@@ -913,7 +910,7 @@ export function SurfaceGroupEditor({
                       label="Insulation thickness"
                       value={el.dInsulation}
                       unit="m"
-                      disabled={!editable}
+                      disabled={false}
                       min={0} max={1} step={0.01}
                       onSave={(v) => save({ dInsulation: Math.max(0, v) })}
                     />
@@ -925,7 +922,7 @@ export function SurfaceGroupEditor({
                       label="Heat loss factor (b)"
                       value={el.bTransmission}
                       unit="–"
-                      disabled={!editable}
+                      disabled={false}
                       min={0} max={1} step={0.01}
                       onSave={(v) => save({ bTransmission: Math.min(1, Math.max(0, v)) })}
                     />
@@ -937,7 +934,7 @@ export function SurfaceGroupEditor({
                       label="Measure type"
                       value={el.measureType}
                       options={el.measureTypeOptions}
-                      disabled={!editable}
+                      disabled={false}
                       onSave={(v) => save({ measureType: v })}
                     />
                   )}

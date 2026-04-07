@@ -5,7 +5,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
   Download, Upload, X, Building2, RotateCcw, Check, AlertTriangle,
-  Flame, Zap, Droplets, Gauge,
+  Flame, Zap, Droplets, Gauge, Plus,
 } from 'lucide-react';
 
 import { BuildingVisualization, VIEW_ORDER } from './configure/visualization/BuildingVisualization';
@@ -14,10 +14,11 @@ import {
   elementToGroup,
   isElementEditable,
   normalizeElementRecord,
+  faceFromAzimuth,
 } from './configure/model/buildingElements';
 import { type EnergyTotals, type LoadDataPoint } from './overview/LoadProfileViewer';
 import { type RoofConfig, DEFAULT_ROOF_CONFIG } from './configure/model/roof';
-import { SegmentedControl, ConfiguratorStyles, ScrollHintContainer } from './shared/ui';
+import { SegmentedControl, ConfiguratorStyles, ScrollHintContainer, ELEMENT_DOTS } from './shared/ui';
 import { cn } from '../../../lib/utils';
 
 import { DEFAULT_ELEMENTS, DEFAULT_GENERAL } from './shared/buildingDefaults';
@@ -31,14 +32,15 @@ import {
   getThermalRating,
   buildSnapshotRows,
 } from './shared/snapshotUtils';
+import type { ElementGroupKey } from './shared/elementListUtils';
 import { BuildingSnapshotAside } from './overview/BuildingSnapshotAside';
 import { EnergyEnvelopeColumn } from './overview/EnergyEnvelopeColumn';
 import { SurfaceGroupSelector } from './configure/surfaces/SurfaceGroupSelector';
+import { SurfaceGroupGrid } from './configure/surfaces/SurfaceGroupGrid';
 import { SurfaceGroupEditor } from './configure/surfaces/SurfaceGroupEditor';
 import { BuildingEditor } from './configure/building/BuildingEditor';
 import { PvSurfaceManager } from './configure/pv/PvSurfaceManager';
 import { BatteryEditor } from './configure/pv/BatteryEditor';
-import { RoofTypeGallery } from './configure/roof/RoofTypeGallery';
 import { createSurfacePvConfig, DEFAULT_PV_CONFIG, DEFAULT_BATTERY_CONFIG } from './shared/buildingDefaults';
 import type { PvConfig, BatteryConfig } from './shared/buildingDefaults';
 
@@ -148,6 +150,21 @@ const ENERGY_ITEMS = [
   { key: 'hotwater',    label: 'Hot Water',   Icon: Droplets, iconBg: 'bg-blue-500/20',   iconColor: 'text-blue-400',   valueColor: 'text-blue-300'   },
 ] as const;
 
+// --- Direction label helper ---------------------------------------------------
+
+/** Short compass or positional label for a surface, used in the sibling strip. */
+function surfaceDirLabel(el: BuildingElement): string {
+  if (el.type === 'floor') return 'Base';
+  if (el.type === 'roof' && el.tilt <= 10) return 'Top';
+  const MAP: Record<string, string> = {
+    north_wall: 'N',  northeast_wall: 'NE',
+    east_wall:  'E',  southeast_wall: 'SE',
+    south_wall: 'S',  southwest_wall: 'SW',
+    west_wall:  'W',  northwest_wall: 'NW',
+  };
+  return MAP[faceFromAzimuth(el.azimuth)] ?? '—';
+}
+
 // --- Header icon button (local — only used in this file) ----------------------
 
 function HeaderBtn({
@@ -211,7 +228,9 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
   const [roofConfig,    setRoofConfig]    = useState<RoofConfig>(DEFAULT_ROOF_CONFIG);
   const [selectedId,    setSelectedId]    = useState<string | null>(null);
   const [surfaceEditorTab, setSurfaceEditorTab] = useState<'geometry' | 'thermal' | 'pv'>('geometry');
-  const [panelView,     setPanelView]     = useState<'building' | 'surface' | 'roof-type' | 'technology-pv' | 'technology-battery'>('building');
+  const [panelView,     setPanelView]     = useState<'building' | 'surface' | 'surface-group' | 'technology-pv' | 'technology-battery'>('building');
+  /** The group type currently driving the surface-group grid in the center panel. */
+  const [activeGroupType, setActiveGroupType] = useState<ElementGroupKey | null>(null);
   // Per-surface PV configurations — keyed by element ID.
   const [surfacePvConfigs, setSurfacePvConfigs] = useState<Record<string, PvConfig>>({});
   // True when a roof-type change removed surfaces that had PV installed.
@@ -287,6 +306,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
     setSavedState({ elements: nextElements, general: nextGeneral, roofConfig: DEFAULT_ROOF_CONFIG });
     setEnergyTotals(nextTotals);
     setSelectedId(null);
+    setActiveGroupType(null);
     setSurfaceEditorTab('geometry');
     setPanelView('building');
     setUploadError(null);
@@ -303,8 +323,9 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
   const updateElement = (id: string, patch: Partial<BuildingElement>) =>
     setElements((prev) => {
       const current = prev[id];
-      if (!current || !isElementEditable(current)) return prev;
-      return { ...prev, [id]: { ...current, ...patch } };
+      if (!current) return prev;
+      // Auto-activate custom mode on first edit so the data model tracks the change.
+      return { ...prev, [id]: { ...current, ...patch, customMode: true } };
     });
 
   // Label is display-only — rename is always allowed regardless of custom mode.
@@ -331,13 +352,20 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
   };
 
   const deleteSurface = (id: string) => {
+    const deletedType = elements[id]?.type as ElementGroupKey | undefined;
     setElements((prev) => {
       const { [id]: _, ...rest } = prev;
       return rest;
     });
     if (selectedId === id) {
       setSelectedId(null);
-      setPanelView('building');
+      if (deletedType) {
+        setActiveGroupType(deletedType);
+        setPanelView('surface-group');
+      } else {
+        setActiveGroupType(null);
+        setPanelView('building');
+      }
     }
   };
 
@@ -360,25 +388,29 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
     setSelectedId(id);
     setSurfaceEditorTab('geometry');
     setPanelView('surface');
+    setActiveGroupType((elements[id]?.type as ElementGroupKey) ?? null);
     setWorkspaceView('configure');
   };
 
   const handleBuildingSelect = () => {
     setSelectedId(null);
+    setActiveGroupType(null);
     setSurfaceEditorTab('geometry');
     setPanelView('building');
     setWorkspaceView('configure');
   };
 
-  const handleRoofTypeSelect = () => {
+  /** Opens the surface grid for a group type in the center panel. */
+  const handleGroupTypeSelect = (type: ElementGroupKey) => {
+    setActiveGroupType(type);
     setSelectedId(null);
-    setSurfaceEditorTab('geometry');
-    setPanelView('roof-type');
+    setPanelView('surface-group');
     setWorkspaceView('configure');
   };
 
   const handleTechnologyPvSelect = () => {
     setSelectedId(null);
+    setActiveGroupType(null);
     setSurfaceEditorTab('pv');
     setPanelView('technology-pv');
     setWorkspaceView('configure');
@@ -408,6 +440,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
   const handleTechnologyBatterySelect = () => {
     setPanelView('technology-battery');
     setSelectedId(null);
+    setActiveGroupType(null);
     setWorkspaceView('configure');
   };
 
@@ -437,6 +470,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
 
     const el = elements[surfaceId];
     if (el) {
+      setActiveGroupType(el.type as ElementGroupKey);
       const g = elementToGroup(el);
       if (g.face !== 'roof' && g.face !== 'floor') {
         const idx = VIEW_ORDER.findIndex((v) => v.frontWallId === g.face);
@@ -481,6 +515,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
         });
     if (firstEl) {
       setSelectedId(firstEl.id);
+      setActiveGroupType(firstEl.type as ElementGroupKey);
       setSurfaceEditorTab('geometry');
       setPanelView('surface');
     }
@@ -498,6 +533,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
     setPanelView('surface');
     const el = elements[elementId];
     if (el) {
+      setActiveGroupType(el.type as ElementGroupKey);
       const g = elementToGroup(el);
       if (g.face !== 'roof' && g.face !== 'floor') {
         const idx = VIEW_ORDER.findIndex((v) => v.frontWallId === g.face);
@@ -512,6 +548,8 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
     setGeneralRaw(initialGeneral);
     setRoofConfig(DEFAULT_ROOF_CONFIG);
     setSelectedId(null);
+    setActiveGroupType(null);
+    setPanelView('building');
     setVizViewIndex(0);
     setUploadError(null);
   };
@@ -822,8 +860,17 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
 
                   {panelView === 'building' ? (
                     <BuildingEditor general={general} setGen={setGen} mode={mode} />
-                  ) : panelView === 'roof-type' ? (
-                    <RoofTypeGallery elements={elements} onApplyRoofType={handleApplyRoofType} />
+                  ) : panelView === 'surface-group' && activeGroupType ? (
+                    <SurfaceGroupGrid
+                      groupType={activeGroupType}
+                      elements={elements}
+                      selectedElementId={selectedId}
+                      onSelect={handleElementSelect}
+                      onDeleteSurface={deleteSurface}
+                      onApplyRoofType={activeGroupType === 'roof' ? handleApplyRoofType : undefined}
+                      onCreateSurface={createSurface}
+                      surfacePvConfigs={surfacePvConfigs}
+                    />
                   ) : panelView === 'technology-pv' ? (
                     <PvSurfaceManager
                       surfaces={pvInstalledSurfaces}
@@ -840,17 +887,67 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
                       mode={mode}
                     />
                   ) : (
-                    <SurfaceGroupEditor
-                      selectedElementId={selectedId}
-                      elements={elements}
-                      onUpdateElement={updateElement}
-                      onEnableCustomMode={enableCustomMode}
-                      onRenameElement={renameElement}
-                      preferredTab={surfaceEditorTab}
-                      surfacePvConfig={selectedId ? (surfacePvConfigs[selectedId] ?? null) : null}
-                      onUpdatePv={(patch) => { if (selectedId) updateSurfacePv(selectedId, patch); }}
-                      mode={mode}
-                    />
+                    <>
+                      {/* Sibling surface strip — lets the user switch surfaces without going back */}
+                      {activeGroupType && selectedId && (() => {
+                        const siblings = Object.values(elements)
+                          .filter((el) => el.type === activeGroupType)
+                          .sort((a, b) => a.azimuth - b.azimuth);
+                        return (
+                          <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border/60 bg-white px-4 py-2">
+                            {siblings.map((el) => {
+                              const isCurrent = el.id === selectedId;
+                              return (
+                                <button
+                                  key={el.id}
+                                  type="button"
+                                  onClick={() => handleElementSelect(el.id)}
+                                  className={cn(
+                                    'flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[10px] font-medium transition-all cursor-pointer',
+                                    isCurrent
+                                      ? 'border-primary/40 bg-primary/10 text-primary'
+                                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
+                                  )}
+                                >
+                                  <span
+                                    className="size-1.5 shrink-0 rounded-full"
+                                    style={{ backgroundColor: ELEMENT_DOTS[el.type] }}
+                                  />
+                                  {el.label}
+                                  <span className={cn(
+                                    'shrink-0 rounded px-1 py-0.5 text-[9px] font-bold',
+                                    isCurrent ? 'bg-primary/15 text-primary' : 'bg-slate-100 text-slate-500',
+                                  )}>
+                                    {surfaceDirLabel(el)}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                            {/* Add another surface of the same type */}
+                            <button
+                              type="button"
+                              title={`Add new ${activeGroupType}`}
+                              onClick={() => createSurface(activeGroupType)}
+                              className="flex shrink-0 items-center justify-center rounded-md border border-dashed border-slate-300 px-2.5 py-1.5 text-slate-400 transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary cursor-pointer"
+                            >
+                              <Plus className="size-3.5" />
+                            </button>
+                          </div>
+                        );
+                      })()}
+                      <SurfaceGroupEditor
+                        selectedElementId={selectedId}
+                        elements={elements}
+                        onUpdateElement={updateElement}
+                        onEnableCustomMode={enableCustomMode}
+                        onRenameElement={renameElement}
+                        preferredTab={surfaceEditorTab}
+                        surfacePvConfig={selectedId ? (surfacePvConfigs[selectedId] ?? null) : null}
+                        onUpdatePv={(patch) => { if (selectedId) updateSurfacePv(selectedId, patch); }}
+                        onDeleteSurface={deleteSurface}
+                        mode={mode}
+                      />
+                    </>
                   )}
                 </div>
 
@@ -859,19 +956,16 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
                   <ScrollHintContainer>
                     <SurfaceGroupSelector
                       elements={elements}
-                      selectedElementId={selectedId}
-                      onSelect={handleElementSelect}
-                      onDeleteSurface={deleteSurface}
+                      activeGroupType={activeGroupType}
+                      onSelectGroupType={handleGroupTypeSelect}
                       onCreateSurface={createSurface}
+                      buildingSubtitle={`${general.buildingType || buildingType}${general.floorArea ? ` · ${general.floorArea} m²` : ''}`}
                       buildingSelected={panelView === 'building'}
                       onSelectBuilding={handleBuildingSelect}
-                      roofTypeSelected={panelView === 'roof-type'}
-                      onSelectRoofType={handleRoofTypeSelect}
                       pvSelected={panelView === 'technology-pv'}
                       pvSurfaceCount={pvSummary.surfaceCount}
                       pvCapacityKw={pvSummary.totalCapacityKw}
                       onSelectTechnologyPv={handleTechnologyPvSelect}
-                      surfacePvConfigs={surfacePvConfigs}
                       batterySelected={panelView === 'technology-battery'}
                       batteryInstalled={batteryConfig.installed}
                       onSelectTechnologyBattery={handleTechnologyBatterySelect}
