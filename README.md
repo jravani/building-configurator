@@ -1,6 +1,6 @@
 # Building Configurator
 
-A React-based GUI for configuring building energy models in the [EnerPlanET](https://www.figma.com/make/pEolLUBa32IcVQP4t7PA49/Building-configurator_for_buem?fullscreen=1&t=61BMw2Y4ObTDiNp2-1) frontend. Feeds building parameters into the BUEM microservice for thermal simulation via the [BUEM JSON Schema contract](https://github.com/THD-Spatial-AI).
+A React component for modelling building properties within the [EnerPlanET](https://github.com/THD-Spatial-AI) platform. It provides a reusable configuration interface for energy simulation workflows, including annual heat demand estimation (HDCP) and thermal load profiling (BUEM), with the intent to support additional simulation services over time.
 
 ## Features
 
@@ -19,7 +19,7 @@ npm run dev
 
 ## Try it out
 
-Deployed on Vercel — [building-configurator-gui.vercel.app](https://building-configurator-gui.vercel.app/)
+Deployed on Vercel: [building-configurator-gui.vercel.app](https://building-configurator-gui.vercel.app/)
 
 ## Contributing
 
@@ -30,3 +30,10 @@ Please read our [Code of Conduct](CODE_OF_CONDUCT.md) before participating.
 ## Designed and developed by
 
 [Jay Ravani](https://github.com/jravani)
+
+## Acknowledgments
+
+This project is being developed in the context of the research project RENvolveIT (<https://projekte.ffg.at/projekt/5127011>).
+This research was funded by CETPartnership, the Clean Energy Transition Partnership under the 2023 joint call for research proposals, co-funded by the European Commission (GA N°101069750) and with the funding organizations detailed on <https://cetpartnership.eu/funding-agencies-and-call-modules>.
+
+<img src="docs/assets/sponsors/CETP-logo.svg" alt="CETPartnership" width="144" height="72">&nbsp;&nbsp;<img src="docs/assets/sponsors/EN_Co-fundedbytheEU_RGB_POS.png" alt="EU" width="180" height="40">
