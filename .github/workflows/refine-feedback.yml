@@ -167,14 +167,9 @@ jobs:
             const issueLabels = ['needs-triage', refined.type, `priority: ${refined.priority}`]
               .filter(Boolean);
 
-            const refinedBody = refined.body + screenshotsSection + `
-
-<details>
-<summary>Original feedback (issue #${issue.number})</summary>
-
-${rawBody}
-
-</details>`;
+            const detailsBlock = '\n\n<details>\n<summary>Original feedback (issue #'
+              + issue.number + ')</summary>\n\n' + rawBody + '\n\n</details>';
+            const refinedBody = refined.body + screenshotsSection + detailsBlock;
 
             const newIssue = await github.rest.issues.create({
               ...context.repo,
