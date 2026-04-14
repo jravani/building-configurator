@@ -143,13 +143,16 @@ export default function App() {
       }}>
         <MapCanvas onBuildingClick={() => setShowConfigurator(true)} />
 
-        {/* Floating configurator panel — top-right, 16 px inset */}
+        {/* Floating configurator panel — centred with viewport inset */}
         {showConfigurator && (
           <Box sx={{
-            position: 'absolute',
-            top:      16,
-            right:    16,
-            zIndex:   10,
+            position:  'absolute',
+            inset:     0,
+            display:   'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex:    10,
+            p:         2,
           }}>
             <BuildingConfigurator onClose={() => setShowConfigurator(false)} buildingData={demoBuilding} />
           </Box>

@@ -5,7 +5,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
   Download, Upload, X, Building2, RotateCcw, Check, AlertTriangle,
-  Flame, Zap, Droplets, Gauge,
+  Flame, Zap, Droplets, Gauge, LayoutDashboard, SlidersHorizontal,
 } from 'lucide-react';
 
 import { BuildingVisualization, VIEW_ORDER } from './configure/visualization/BuildingVisualization';
@@ -677,22 +677,23 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
             <Building2 className="size-4 text-primary-foreground" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-foreground leading-tight">{buildingLabel} · {buildingType}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold text-foreground leading-tight">{buildingLabel} · {buildingType}</p>
+              <span className={cn(
+                'shrink-0 flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest',
+                workspaceView === 'overview'
+                  ? 'bg-slate-100 text-slate-500'
+                  : 'bg-primary/10 text-primary',
+              )}>
+                {workspaceView === 'overview' ? <LayoutDashboard className="size-3" /> : <SlidersHorizontal className="size-3" />}
+                {workspaceView === 'overview' ? 'Overview' : 'Configure'}
+              </span>
+            </div>
             <p className="text-[11px] text-muted-foreground leading-tight">{formatCoordinates(coordinates[0], coordinates[1])}</p>
           </div>
-          {workspaceView === 'configure' && (
-            <span className="shrink-0 rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-amber-700">
-              Alpha version - work in progress
-            </span>
-          )}
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          <SegmentedControl
-            options={[{ value: 'overview', label: 'Overview' }, { value: 'configure', label: 'Configure' }]}
-            value={workspaceView}
-            onChange={(v) => setWorkspaceView(v as 'overview' | 'configure')}
-          />
           <SegmentedControl
             options={[{ value: 'basic', label: 'Basic' }, { value: 'expert', label: 'Expert' }]}
             value={mode}
@@ -756,9 +757,15 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
 
                 {/* 3D preview — takes all remaining vertical space */}
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-b border-border/60 bg-slate-50">
-                  <p className="shrink-0 px-4 pt-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                    3D Preview
-                  </p>
+                  <div className="shrink-0 px-4 pt-3 pb-2">
+                    <p className="text-xs font-bold uppercase tracking-[0.08em] text-foreground">
+                      3D Preview
+                    </p>
+                    <div className="mt-2 rounded-md bg-blue-50 border border-blue-100 px-3 py-2 flex flex-col gap-0.5">
+                      <p className="text-[11px] font-semibold text-blue-700">How to use</p>
+                      <p className="text-[10px] text-blue-600 leading-snug">Click any surface to select it · Use the arrow buttons to rotate the view</p>
+                    </div>
+                  </div>
                   <div className="min-h-0 flex-1 overflow-hidden px-3 pb-3">
                     <BuildingVisualization
                       elements={elements}
@@ -930,7 +937,23 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
 
         {/* ── Footer: reset / apply ── */}
         <div className="border-t border-border/80 bg-slate-50 px-4 py-3 shadow-[0_-8px_20px_rgba(15,23,42,0.04)]">
-          <div className="flex items-center justify-end gap-2">
+          <div className="flex items-center justify-between gap-2">
+            {/* View toggle FAB */}
+            <button
+              type="button"
+              onClick={() => setWorkspaceView(workspaceView === 'overview' ? 'configure' : 'overview')}
+              className={cn(
+                'flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all duration-150 cursor-pointer shadow-md',
+                workspaceView === 'overview'
+                  ? 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-primary/30'
+                  : 'bg-slate-700 text-white hover:bg-slate-600 shadow-slate-700/30',
+              )}
+            >
+              {workspaceView === 'overview'
+                ? <><SlidersHorizontal className="size-4" /> Configure Building</>
+                : <><LayoutDashboard className="size-4" /> Back to Overview</>}
+            </button>
+            <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={handleReset}
@@ -947,6 +970,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
               <Check className="size-3.5" />
               Apply
             </button>
+            </div>
           </div>
         </div>
       </div>
