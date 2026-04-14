@@ -3,6 +3,7 @@ import { ThemeProvider, createTheme } from '@mui/material';
 import { Box } from '@mui/material';
 import { useState, useMemo } from 'react';
 import { BuildingConfigurator } from './components/BuildingConfigurator';
+import { FeedbackWidget } from './components/FeedbackWidget';
 import { adaptBuemFeature, extractFeaturesFromConfig, parseLoadProfileCsv } from './lib/buemAdapter';
 import type { BuildingState } from './lib/buemAdapter';
 import demoConfig from '../assets/data/demo_config.json';
@@ -159,6 +160,10 @@ export default function App() {
         )}
       </Box>
     </ThemeProvider>
+    <FeedbackWidget
+      view={showConfigurator ? 'Configure' : 'Map'}
+      context={showConfigurator ? 'Building configurator open' : ''}
+    />
     <Analytics />
     </>
   );
