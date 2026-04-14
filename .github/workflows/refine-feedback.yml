@@ -1,0 +1,213 @@
+# Triggered whenever a [Feedback] issue is opened by the in-app widget.
+# Uses GitHub Models (gpt-4o — vision-capable) to rewrite the raw user
+# feedback into a structured, developer-ready GitHub issue.
+#
+# After refinement the workflow:
+#   • Replaces the issue title (strips [Feedback] prefix, writes a clear summary)
+#   • Replaces the issue body with a standard bug/ux template
+#   • Adds the label  "needs-triage"  so the team can review before assigning
+#   • Removes the raw "user-feedback" label so the queue stays clean
+#
+# No extra secrets needed — GITHUB_TOKEN has Models API access in Actions.
+
+name: Refine feedback issue
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  refine:
+    # Only run for issues created by the feedback widget
+    if: startsWith(github.event.issue.title, '[Feedback]')
+    runs-on: ubuntu-latest
+
+    permissions:
+      issues: write   # edit title/body, add labels, post comment
+      models: read    # GitHub Models API
+
+    steps:
+      - name: Refine with GitHub Models (gpt-4o)
+        uses: actions/github-script@v7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          script: |
+            const issue     = context.payload.issue;
+            const rawTitle  = issue.title;
+            const rawBody   = issue.body ?? '';
+
+            // ── Build the prompt ──────────────────────────────────────────────
+            const systemPrompt = `
+            You are a senior UX engineer triaging user feedback for a web app called
+            "EnerPlanET Building Configurator" — a tool that helps non-technical users
+            (architects, energy consultants, building owners) model building energy use.
+
+            You will receive raw feedback submitted via an in-app widget. Your job is to
+            rewrite it as a well-structured GitHub issue a developer can act on immediately.
+
+            Rules:
+            - Write for a developer audience, not the end user.
+            - Be specific: name the UI component, screen, or interaction that is affected.
+            - If a screenshot is embedded, describe what it shows and reference it explicitly.
+            - Do not invent reproduction steps you cannot infer — mark them "TBD" if unclear.
+            - Keep the title under 72 characters, imperative mood (e.g. "Fix...", "Add...").
+            - Output ONLY valid JSON — no markdown fences, no extra keys.
+
+            Output schema:
+            {
+              "title": "string — refined issue title, no [Feedback] prefix",
+              "type": "bug | enhancement | ux",
+              "priority": "low | medium | high | critical",
+              "body": "string — full GitHub issue body in Markdown (see template below)"
+            }
+
+            Issue body template (fill every section; write N/A if genuinely unknown):
+            ## Summary
+            One-sentence description of the problem or request.
+
+            ## User Goal
+            What the user was trying to accomplish.
+
+            ## Observed Behaviour
+            What actually happened.
+
+            ## Expected Behaviour
+            What the user expected instead.
+
+            ## Steps to Reproduce
+            1. ...
+
+            ## Affected Component / Screen
+            Name the React component, panel, or view (e.g. "SurfaceGroupEditor — Solar PV tab").
+
+            ## Screenshots
+            Reference any screenshots from the original feedback here.
+
+            ## Suggested Fix / Direction
+            Brief technical suggestion — or "TBD" if unclear.
+
+            ## Priority Rationale
+            Why you chose the priority level above.
+
+            ---
+            > 🤖 Refined from raw user feedback by GitHub Models (gpt-4o).
+            > Verify the steps to reproduce before assigning.
+
+            <details>
+            <summary>Original feedback</summary>
+
+            {ORIGINAL_BODY}
+
+            </details>
+            `.trim();
+
+            const userMessage = `
+            Raw feedback issue:
+            Title: ${rawTitle}
+
+            Body:
+            ${rawBody}
+            `.trim();
+
+            // ── Call GitHub Models API ────────────────────────────────────────
+            const apiRes = await fetch(
+              'https://models.inference.ai.azure.com/chat/completions',
+              {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${process.env.GITHUB_TOKEN}`,
+                  'Content-Type':  'application/json',
+                },
+                body: JSON.stringify({
+                  model: 'gpt-4o',
+                  temperature: 0.2,
+                  messages: [
+                    { role: 'system', content: systemPrompt.replace('{ORIGINAL_BODY}', rawBody) },
+                    { role: 'user',   content: userMessage },
+                  ],
+                }),
+              }
+            );
+
+            if (!apiRes.ok) {
+              const err = await apiRes.text();
+              core.setFailed(`GitHub Models API error: ${err}`);
+              return;
+            }
+
+            const aiData  = await apiRes.json();
+            const content = aiData.choices?.[0]?.message?.content ?? '';
+
+            let refined;
+            try {
+              refined = JSON.parse(content);
+            } catch {
+              core.setFailed(`Could not parse AI response as JSON:\n${content}`);
+              return;
+            }
+
+            // ── Ensure labels exist ───────────────────────────────────────────
+            const labelDefs = [
+              { name: 'needs-triage',  color: 'e4e669', description: 'Refined feedback awaiting triage' },
+              { name: 'bug',           color: 'd73a4a', description: 'Something is not working'         },
+              { name: 'enhancement',   color: 'a2eeef', description: 'New feature or improvement'       },
+              { name: 'ux',            color: '7057ff', description: 'User experience issue'            },
+            ];
+            for (const l of labelDefs) {
+              try {
+                await github.rest.issues.createLabel({ ...context.repo, ...l });
+              } catch {
+                // label already exists — ignore
+              }
+            }
+
+            // ── Update the issue ──────────────────────────────────────────────
+            await github.rest.issues.update({
+              ...context.repo,
+              issue_number: issue.number,
+              title: refined.title,
+              body:  refined.body,
+            });
+
+            // Add labels: type + priority + needs-triage; remove raw user-feedback
+            const addLabels = ['needs-triage', refined.type, `priority: ${refined.priority}`]
+              .filter(Boolean);
+
+            await github.rest.issues.addLabels({
+              ...context.repo,
+              issue_number: issue.number,
+              labels: addLabels,
+            });
+
+            // Remove the raw widget labels now that it's been refined
+            for (const label of ['user-feedback']) {
+              try {
+                await github.rest.issues.removeLabel({
+                  ...context.repo,
+                  issue_number: issue.number,
+                  name: label,
+                });
+              } catch {
+                // label may not exist — ignore
+              }
+            }
+
+            // ── Post a comment summarising what changed ───────────────────────
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: issue.number,
+              body: [
+                '### 🤖 Feedback refined by GitHub Models',
+                '',
+                `**Type:** ${refined.type}  `,
+                `**Priority:** ${refined.priority}  `,
+                '',
+                'The raw user feedback above has been rewritten into a developer-ready issue.',
+                'Please verify the steps to reproduce and assign accordingly.',
+                '',
+                '_To hand this to a Copilot agent: open the issue, click **Copilot** → **Fix issue**._',
+              ].join('\n'),
+            });
+
+            core.info(`Issue #${issue.number} refined successfully.`);

@@ -1,8 +1,10 @@
 // Vercel serverless function — receives feedback from the in-app widget,
-// optionally uploads a screenshot to the repo, and creates a GitHub issue.
+// uploads screenshots directly to the GitHub issue as assets, and creates
+// a GitHub issue with the screenshots embedded in the body.
 //
 // Required environment variables (set in Vercel project settings):
-//   GITHUB_TOKEN  — Personal Access Token with `repo` scope
+//   GITHUB_TOKEN  — Personal Access Token with `repo` scope OR fine-grained
+//                   token with Issues: Read and write
 //   GITHUB_OWNER  — repository owner (e.g. "your-org")
 //   GITHUB_REPO   — repository name (e.g. "building-configurator")
 
@@ -10,7 +12,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 interface ScreenshotPayload {
   name:     string;   // original filename
-  data:     string;   // base64-encoded image content
+  data:     string;   // base64-encoded image content (no data-URI prefix)
   mimeType: string;   // image/png | image/jpeg | image/webp
 }
 
@@ -32,44 +34,42 @@ function ratingMeta(r: number): { label: string; ghLabel: string } {
                return { label: '5 – Blocked/broken', ghLabel: 'feedback: blocked' };
 }
 
-/** Uploads a base64-encoded image to feedback-screenshots/ in the repo.
- *  Returns the raw CDN URL (cdn.jsdelivr.net mirrors raw.githubusercontent.com
- *  and serves images correctly in GitHub issue markdown). */
-async function uploadScreenshot(
-  owner: string,
-  repo:  string,
-  token: string,
-  shot:  ScreenshotPayload,
+/** Uploads a base64-encoded image as an asset attached to an existing issue.
+ *  Uses uploads.github.com which only requires Issues: write permission.
+ *  Returns a GitHub CDN URL (github.com/user-attachments/assets/...) that
+ *  renders correctly in GitHub markdown regardless of repo visibility. */
+async function uploadIssueAsset(
+  owner:       string,
+  repo:        string,
+  issueNumber: number,
+  token:       string,
+  shot:        ScreenshotPayload,
 ): Promise<string> {
-  // Sanitise filename and make it unique
+  const binary   = Buffer.from(shot.data, 'base64');
   const safeName = shot.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const path     = `feedback-screenshots/${Date.now()}-${safeName}`;
 
   const res = await fetch(
-    `https://api.github.com/repos/${owner}/${repo}/contents/${path}`,
+    `https://uploads.github.com/repos/${owner}/${repo}/issues/${issueNumber}/assets?name=${encodeURIComponent(safeName)}`,
     {
-      method: 'PUT',
+      method:  'POST',
       headers: {
-        Authorization:        `Bearer ${token}`,
-        Accept:               'application/vnd.github+json',
-        'Content-Type':       'application/json',
+        Authorization:          `Bearer ${token}`,
+        Accept:                 'application/vnd.github+json',
+        'Content-Type':         shot.mimeType || 'image/png',
+        'Content-Length':       String(binary.length),
         'X-GitHub-Api-Version': '2022-11-28',
       },
-      body: JSON.stringify({
-        message: `chore: add feedback screenshot ${path}`,
-        content: shot.data,   // GitHub Contents API expects raw base64
-      }),
+      body: binary,
     },
   );
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Screenshot upload failed: ${err}`);
+    throw new Error(`Asset upload failed (HTTP ${res.status}): ${err}`);
   }
 
-  const json = await res.json() as { content: { html_url: string; download_url: string } };
-  // Use the raw download URL — renders inline in GitHub markdown
-  return json.content.download_url;
+  const json = await res.json() as { url: string };
+  return json.url;
 }
 
 function buildIssueBody(p: FeedbackPayload, screenshotUrls: string[]): string {
@@ -112,9 +112,9 @@ function buildIssueBody(p: FeedbackPayload, screenshotUrls: string[]): string {
 }
 
 function buildIssueTitle(p: FeedbackPayload): string {
-  const prefix  = '[Feedback] ';
-  const max     = 72 - prefix.length;
-  const goal    = p.goal.replace(/\n/g, ' ').trim();
+  const prefix = '[Feedback] ';
+  const max    = 72 - prefix.length;
+  const goal   = p.goal.replace(/\n/g, ' ').trim();
   return `${prefix}${goal.length > max ? goal.slice(0, max - 1) + '…' : goal}`;
 }
 
@@ -132,19 +132,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'goal and result are required' });
   }
 
-  // Upload all screenshots (non-fatal if any fail)
-  const screenshotUrls: string[] = [];
-  for (const shot of payload.screenshots ?? []) {
-    if (!shot?.data) continue;
-    try {
-      screenshotUrls.push(await uploadScreenshot(GITHUB_OWNER, GITHUB_REPO, GITHUB_TOKEN, shot));
-    } catch (e) {
-      console.error('Screenshot upload error:', e);
-    }
-  }
-
   const { ghLabel } = ratingMeta(payload.rating ?? 3);
 
+  // ── Step 1: Create the issue (without screenshots — we don't have URLs yet) ──
   const ghRes = await fetch(
     `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/issues`,
     {
@@ -157,7 +147,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
       body: JSON.stringify({
         title:  buildIssueTitle(payload),
-        body:   buildIssueBody(payload, screenshotUrls),
+        body:   buildIssueBody(payload, []),
         labels: ['user-feedback', 'ux', ghLabel],
       }),
     },
@@ -170,5 +160,41 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const issue = await ghRes.json() as { number: number; html_url: string };
+
+  // ── Step 2: Upload screenshots as issue assets ────────────────────────────
+  const screenshotUrls: string[] = [];
+  for (const shot of payload.screenshots ?? []) {
+    if (!shot?.data) continue;
+    try {
+      const url = await uploadIssueAsset(GITHUB_OWNER, GITHUB_REPO, issue.number, GITHUB_TOKEN, shot);
+      screenshotUrls.push(url);
+    } catch (e) {
+      // Non-fatal: log the error but continue — the issue already exists
+      console.error(`Screenshot upload failed for issue #${issue.number}:`, e);
+    }
+  }
+
+  // ── Step 3: Patch issue body to include screenshot URLs ───────────────────
+  if (screenshotUrls.length > 0) {
+    const patchRes = await fetch(
+      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/issues/${issue.number}`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization:          `Bearer ${GITHUB_TOKEN}`,
+          Accept:                 'application/vnd.github+json',
+          'Content-Type':         'application/json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        body: JSON.stringify({ body: buildIssueBody(payload, screenshotUrls) }),
+      },
+    );
+
+    if (!patchRes.ok) {
+      console.error('Failed to patch issue with screenshot URLs:', await patchRes.text());
+      // Issue already created — still return success
+    }
+  }
+
   return res.status(201).json({ issueNumber: issue.number, issueUrl: issue.html_url });
 }
