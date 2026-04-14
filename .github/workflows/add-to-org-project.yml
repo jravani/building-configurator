@@ -8,6 +8,9 @@ on:
 
 jobs:
   add-to-project:
+    # Skip raw [Feedback] issues — they are closed and superseded by a refined
+    # [Issue] which gets added to the project directly by refine-feedback.yml.
+    if: "!startsWith(github.event.issue.title, '[Feedback]')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/add-to-project@v1.0.2
