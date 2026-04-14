@@ -113,6 +113,13 @@ markdown_extensions:
 # Page tree
 nav:
   - Home: index.md
+  - Feedback Pipeline: feedback-pipeline.md
+
+# Mermaid — load explicitly so diagrams render on GitHub Pages.
+# Material for MkDocs attempts a dynamic import at runtime which can silently
+# fail; loading the script here ensures it is always available.
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js
 
 # Copyright
 copyright: |
