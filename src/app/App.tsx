@@ -1,7 +1,7 @@
 import { Analytics } from '@vercel/analytics/react';
 import { ThemeProvider, createTheme } from '@mui/material';
 import { Box } from '@mui/material';
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { BuildingConfigurator } from './components/BuildingConfigurator';
 import { FeedbackWidget } from './components/FeedbackWidget';
 import { adaptBuemFeature, extractFeaturesFromConfig, parseLoadProfileCsv } from './lib/buemAdapter';
@@ -112,6 +112,62 @@ function MapCanvas({ onBuildingClick }: { onBuildingClick: () => void }) {
   );
 }
 
+// ─── Zoom tip banner ──────────────────────────────────────────────────────────
+
+// Kbd renders a single key label in a subtle "keycap" style.
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <span style={{
+      display:       'inline-block',
+      padding:       '0 5px',
+      marginLeft:    2,
+      marginRight:   2,
+      background:    'rgba(255,255,255,0.12)',
+      border:        '1px solid rgba(255,255,255,0.2)',
+      borderRadius:  '4px',
+      color:         'rgba(255,255,255,0.8)',
+      fontWeight:    600,
+      fontSize:      '10.5px',
+      lineHeight:    '16px',
+      letterSpacing: '0.02em',
+    }}>
+      {children}
+    </span>
+  );
+}
+
+function ZoomTip() {
+  return (
+    <Box sx={{
+      position:      'fixed',
+      bottom:        12,
+      left:          12,
+      zIndex:        9999,
+      pointerEvents: 'none',
+    }}>
+      <Box sx={{
+        px:           2.5,
+        py:           0.75,
+        bgcolor:      'rgba(0,0,0,0.45)',
+        borderRadius: '8px',
+        color:        'rgba(255,255,255,0.5)',
+        fontSize:     '11px',
+        lineHeight:   '1.6',
+        userSelect:   'none',
+        textAlign:    'left',
+      }}>
+        <span style={{ color: 'rgba(255,255,255,0.65)', fontWeight: 500 }}>
+          Tip: if the page feels too small or too large, adjust the zoom level in your browser.
+        </span>
+        <br />
+        Hold <Kbd>Ctrl</Kbd> and press <Kbd>+</Kbd> to zoom in &nbsp;·&nbsp; <Kbd>Ctrl</Kbd> <Kbd>−</Kbd> to zoom out &nbsp;·&nbsp; <Kbd>Ctrl</Kbd> <Kbd>0</Kbd> to reset
+        &nbsp;&nbsp;|&nbsp;&nbsp;
+        or hold <Kbd>Ctrl</Kbd> and scroll the mouse wheel up / down
+      </Box>
+    </Box>
+  );
+}
+
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -133,6 +189,7 @@ export default function App() {
 
   return (
     <>
+    <ZoomTip />
     <ThemeProvider theme={theme}>
       {/* Map canvas */}
       <Box sx={{
