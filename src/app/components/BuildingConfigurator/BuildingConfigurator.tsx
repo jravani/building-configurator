@@ -667,7 +667,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
     : otherTechIds.filter((id) => id !== 'battery');
 
   return (
-    <div className="cfg-panel mr-[10px] h-[min(920px,calc(100vh-24px))] w-[min(1540px,calc(100vw-60px))] rounded-lg shadow-2xl flex flex-col bg-card overflow-hidden">
+    <div className="cfg-panel w-[80vw] h-[88vh] rounded-lg shadow-2xl flex flex-col bg-card overflow-hidden">
       <ConfiguratorStyles />
 
       {/* ── Header ── */}
