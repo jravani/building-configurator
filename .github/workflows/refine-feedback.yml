@@ -2,11 +2,12 @@
 # Uses GitHub Models (gpt-4o — vision-capable) to rewrite the raw user
 # feedback into a structured, developer-ready GitHub issue.
 #
-# After refinement the workflow:
-#   • Replaces the issue title (strips [Feedback] prefix, writes a clear summary)
-#   • Replaces the issue body with a standard bug/ux template
-#   • Adds the label  "needs-triage"  so the team can review before assigning
-#   • Removes the raw "user-feedback" label so the queue stays clean
+# What this workflow does:
+#   • Leaves the original [Feedback] issue completely untouched
+#   • Creates a NEW [Issue] issue with a refined, developer-ready body
+#   • Copies any screenshots from the original feedback into the new issue
+#   • Adds "needs-triage" to both issues so the team can find them
+#   • Posts a cross-link comment on the original feedback issue
 #
 # No extra secrets needed — GITHUB_TOKEN has Models API access in Actions.
 
@@ -23,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      issues: write   # edit title/body, add labels, post comment
+      issues: write   # create issues, add labels, post comments
       models: read    # GitHub Models API
 
     steps:
@@ -33,9 +34,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           script: |
-            const issue     = context.payload.issue;
-            const rawTitle  = issue.title;
-            const rawBody   = issue.body ?? '';
+            const issue    = context.payload.issue;
+            const rawTitle = issue.title;
+            const rawBody  = issue.body ?? '';
 
             // ── Build the prompt ──────────────────────────────────────────────
             const systemPrompt = `
@@ -56,7 +57,7 @@ jobs:
 
             Output schema:
             {
-              "title": "string — refined issue title, no [Feedback] prefix",
+              "title": "string — refined issue title, no prefix",
               "type": "bug | enhancement | ux",
               "priority": "low | medium | high | critical",
               "body": "string — full GitHub issue body in Markdown (see template below)"
@@ -81,9 +82,6 @@ jobs:
             ## Affected Component / Screen
             Name the React component, panel, or view (e.g. "SurfaceGroupEditor — Solar PV tab").
 
-            ## Screenshots
-            Reference any screenshots from the original feedback here.
-
             ## Suggested Fix / Direction
             Brief technical suggestion — or "TBD" if unclear.
 
@@ -93,13 +91,6 @@ jobs:
             ---
             > 🤖 Refined from raw user feedback by GitHub Models (gpt-4o).
             > Verify the steps to reproduce before assigning.
-
-            <details>
-            <summary>Original feedback</summary>
-
-            {ORIGINAL_BODY}
-
-            </details>
             `.trim();
 
             const userMessage = `
@@ -123,7 +114,7 @@ jobs:
                   model: 'gpt-4o',
                   temperature: 0.2,
                   messages: [
-                    { role: 'system', content: systemPrompt.replace('{ORIGINAL_BODY}', rawBody) },
+                    { role: 'system', content: systemPrompt },
                     { role: 'user',   content: userMessage },
                   ],
                 }),
@@ -147,12 +138,21 @@ jobs:
               return;
             }
 
+            // ── Extract screenshots from the original feedback body ────────────
+            // The feedback widget embeds screenshots as markdown images.
+            // We copy them into the refined issue so they are not lost.
+            let screenshotsSection = '';
+            const screenshotMatch = rawBody.match(/### Screenshots \(\d+\)([\s\S]*?)(?=\n---|\n## |$)/);
+            if (screenshotMatch) {
+              screenshotsSection = `\n\n## Screenshots\n${screenshotMatch[1].trim()}`;
+            }
+
             // ── Ensure labels exist ───────────────────────────────────────────
             const labelDefs = [
-              { name: 'needs-triage',  color: 'e4e669', description: 'Refined feedback awaiting triage' },
-              { name: 'bug',           color: 'd73a4a', description: 'Something is not working'         },
-              { name: 'enhancement',   color: 'a2eeef', description: 'New feature or improvement'       },
-              { name: 'ux',            color: '7057ff', description: 'User experience issue'            },
+              { name: 'needs-triage',  color: 'e4e669', description: 'Awaiting triage'              },
+              { name: 'bug',           color: 'd73a4a', description: 'Something is not working'     },
+              { name: 'enhancement',   color: 'a2eeef', description: 'New feature or improvement'   },
+              { name: 'ux',            color: '7057ff', description: 'User experience issue'         },
             ];
             for (const l of labelDefs) {
               try {
@@ -162,52 +162,49 @@ jobs:
               }
             }
 
-            // ── Update the issue ──────────────────────────────────────────────
-            await github.rest.issues.update({
-              ...context.repo,
-              issue_number: issue.number,
-              title: refined.title,
-              body:  refined.body,
-            });
-
-            // Add labels: type + priority + needs-triage; remove raw user-feedback
-            const addLabels = ['needs-triage', refined.type, `priority: ${refined.priority}`]
+            // ── Create the new refined [Issue] ────────────────────────────────
+            const issueLabels = ['needs-triage', refined.type, `priority: ${refined.priority}`]
               .filter(Boolean);
 
+            const refinedBody = refined.body + screenshotsSection + `
+
+<details>
+<summary>Original feedback (issue #${issue.number})</summary>
+
+${rawBody}
+
+</details>`;
+
+            const newIssue = await github.rest.issues.create({
+              ...context.repo,
+              title:  `[Issue] ${refined.title}`,
+              body:   refinedBody,
+              labels: issueLabels,
+            });
+
+            // ── Add needs-triage to the original feedback issue ───────────────
             await github.rest.issues.addLabels({
               ...context.repo,
               issue_number: issue.number,
-              labels: addLabels,
+              labels: ['needs-triage'],
             });
 
-            // Remove the raw widget labels now that it's been refined
-            for (const label of ['user-feedback']) {
-              try {
-                await github.rest.issues.removeLabel({
-                  ...context.repo,
-                  issue_number: issue.number,
-                  name: label,
-                });
-              } catch {
-                // label may not exist — ignore
-              }
-            }
-
-            // ── Post a comment summarising what changed ───────────────────────
+            // ── Post a cross-link comment on the original feedback issue ──────
             await github.rest.issues.createComment({
               ...context.repo,
               issue_number: issue.number,
               body: [
                 '### 🤖 Feedback refined by GitHub Models',
                 '',
+                `A developer-ready issue has been created: **#${newIssue.data.number}**`,
+                '',
                 `**Type:** ${refined.type}  `,
                 `**Priority:** ${refined.priority}  `,
                 '',
-                'The raw user feedback above has been rewritten into a developer-ready issue.',
-                'Please verify the steps to reproduce and assign accordingly.',
+                'This original feedback issue is preserved as-is for reference.',
                 '',
-                '_To hand this to a Copilot agent: open the issue, click **Copilot** → **Fix issue**._',
+                '_To hand the refined issue to a Copilot agent: open it, click **Copilot** → **Fix issue**._',
               ].join('\n'),
             });
 
-            core.info(`Issue #${issue.number} refined successfully.`);
+            core.info(`Feedback #${issue.number} → refined issue #${newIssue.data.number}`);
