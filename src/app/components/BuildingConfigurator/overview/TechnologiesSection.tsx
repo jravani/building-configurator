@@ -102,10 +102,10 @@ export function TechnologiesSection({
             )}
           >
             <div className={cn(
-              'flex size-7 shrink-0 items-center justify-center rounded-md',
+              'flex size-10 shrink-0 items-center justify-center rounded-lg',
               installed ? 'bg-white/15' : 'bg-slate-100',
             )}>
-              <Icon className={cn('size-4', installed ? 'text-white' : 'text-slate-500')} />
+              <Icon className={cn('size-6', installed ? 'text-white' : 'text-slate-500')} />
             </div>
 
             <div className="min-w-0 flex-1">

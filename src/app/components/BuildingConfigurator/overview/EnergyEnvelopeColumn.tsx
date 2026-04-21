@@ -1,6 +1,7 @@
 // Right column of the Overview view: load profile chart and element composition accordion.
 
 import React from 'react';
+import { Layers as LayersIcon, Cpu as CpuIcon } from 'lucide-react';
 import { ScrollHintContainer } from '@/app/components/BuildingConfigurator/shared/ui';
 import { LoadProfileViewer } from './LoadProfileViewer';
 import type { BuildingElement } from '@/app/components/BuildingConfigurator/configure/model/buildingElements';
@@ -87,8 +88,13 @@ export function EnergyEnvelopeColumn({
 
         {/* ── Element composition — fixed size, scrolls when a group expands ── */}
         <div className="shrink-0 border-t border-border/60 px-4 pb-4 pt-4">
-          <div className="mb-3 flex items-baseline justify-between">
-            <p className="text-sm font-semibold text-foreground">Building Surfaces</p>
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="flex size-6 items-center justify-center rounded-md bg-slate-200">
+                <LayersIcon className="size-3.5 text-slate-600" />
+              </div>
+              <p className="text-sm font-semibold text-foreground">Building Envelope</p>
+            </div>
             <p className="text-[11px] text-slate-400">Click a group to expand</p>
           </div>
           <ElementCompositionSection
@@ -104,8 +110,13 @@ export function EnergyEnvelopeColumn({
 
         {/* ── Technologies ── */}
         <div className="shrink-0 border-t border-border/60 px-4 pb-6 pt-4">
-          <div className="mb-3 flex items-baseline justify-between">
-            <p className="text-sm font-semibold text-foreground">Technologies</p>
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="flex size-6 items-center justify-center rounded-md bg-slate-200">
+                <CpuIcon className="size-3.5 text-slate-600" />
+              </div>
+              <p className="text-sm font-semibold text-foreground">Technologies</p>
+            </div>
             <p className="text-[11px] text-slate-400">Configure in workspace</p>
           </div>
           <TechnologiesSection
