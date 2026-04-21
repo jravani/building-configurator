@@ -305,35 +305,45 @@ export function SessionPanel({
   // pull tab stays visible at the viewport right edge.
 
   const shell = (children: React.ReactNode, footer?: React.ReactNode) => (
-    <div className="fixed right-0 z-50" style={{ top: '50%', transform: 'translateY(-50%)' }}>
-      <div className={cn(
-        'flex items-stretch transition-transform duration-300 ease-in-out',
-        collapsed ? 'translate-x-[320px]' : 'translate-x-0',
-      )}>
-        {/* Pull tab */}
-        <button
-          type="button"
-          onClick={onToggleCollapsed}
-          title={collapsed ? 'Show tasks' : 'Hide tasks'}
-          className="w-8 shrink-0 bg-slate-800 hover:bg-slate-700 border-y border-l border-slate-600 rounded-l-xl flex flex-col items-center justify-center gap-3 py-8 cursor-pointer transition-colors shadow-xl"
-        >
-          <ChevronLeft className={cn('size-3.5 text-slate-300 transition-transform duration-300', !collapsed && 'rotate-180')} />
-          <span className="text-[13px] font-semibold text-slate-300 select-none"
-            style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
-            Tasks
-          </span>
-        </button>
+    <>
+      {/* ── Floating report button — always visible at bottom-right, context-aware ── */}
+      <button
+        type="button"
+        onClick={() => { if (collapsed) onToggleCollapsed(); setPanelView('report'); }}
+        title={`Report an issue (current view: ${view})`}
+        className="fixed bottom-4 right-4 z-50 flex items-center gap-1.5 rounded-full border border-orange-700/40 bg-slate-900/90 backdrop-blur-sm px-3 py-2 text-xs font-semibold text-orange-400 shadow-lg hover:bg-slate-800 hover:border-orange-600/60 cursor-pointer transition-colors"
+      >
+        <Bug className="size-3.5" /> Report an issue
+      </button>
 
-        {/* Panel */}
-        <div
-          className="w-80 bg-slate-900 border-y border-l border-slate-700 shadow-2xl flex flex-col"
-          style={{ maxHeight: 'calc(100vh - 5rem)' }}
-        >
-          {children}
-          {footer}
+      {/* ── Task panel ── */}
+      <div className="fixed right-0 top-4 bottom-16 z-50 flex items-stretch">
+        <div className={cn(
+          'flex items-stretch h-full transition-transform duration-300 ease-in-out',
+          collapsed ? 'translate-x-[320px]' : 'translate-x-0',
+        )}>
+          {/* Pull tab */}
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            title={collapsed ? 'Show tasks' : 'Hide tasks'}
+            className="w-8 shrink-0 bg-slate-800 hover:bg-slate-700 border-y border-l border-slate-600 rounded-l-xl flex flex-col items-center justify-center gap-3 py-8 cursor-pointer transition-colors shadow-xl"
+          >
+            <ChevronLeft className={cn('size-3.5 text-slate-300 transition-transform duration-300', !collapsed && 'rotate-180')} />
+            <span className="text-[13px] font-semibold text-slate-300 select-none"
+              style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
+              Tasks
+            </span>
+          </button>
+
+          {/* Panel */}
+          <div className="w-80 bg-slate-900 border-y border-l border-slate-700 shadow-2xl flex flex-col h-full overflow-hidden">
+            {children}
+            {footer}
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 
   // ── Panel header ──────────────────────────────────────────────────────────
@@ -600,10 +610,6 @@ export function SessionPanel({
 
   const taskFooter = (
     <div className="px-4 pb-4 flex flex-col gap-2 shrink-0">
-      <button type="button" onClick={() => setPanelView('report')}
-        className="flex items-center gap-1.5 self-start rounded-lg border border-orange-700/40 bg-orange-900/20 px-3 py-1.5 text-xs font-semibold text-orange-400 hover:bg-orange-800/30 hover:border-orange-600/60 cursor-pointer transition-colors">
-        <Bug className="size-3.5" /> Report an issue
-      </button>
       <div className="flex items-center gap-2">
         <div className="flex flex-1 items-center gap-1">
           {TESTING_TASKS.map((t, i) => (
@@ -631,27 +637,30 @@ export function SessionPanel({
     </div>
   );
 
-  // ── All-done state ────────────────────────────────────────────────────────
+  // ── Body selection ────────────────────────────────────────────────────────
 
-  if (allDone) {
-    const body = panelView === 'report' || panelView === 'report_done' ? reportBody : (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-10 text-center">
-        <CheckCircle2 className="size-10 text-green-400" />
-        <div>
-          <p className="text-sm font-semibold text-white">All tasks complete</p>
-          <p className="text-xs text-slate-400 leading-snug mt-1">Thank you for your time. Your input will help improve the tool.</p>
-        </div>
-        <button type="button" onClick={() => setPanelView('report')}
-          className="flex items-center gap-1.5 rounded-lg border border-orange-700/40 bg-orange-900/20 px-3 py-2 text-xs font-semibold text-orange-400 hover:bg-orange-800/30 cursor-pointer transition-colors">
-          <Bug className="size-3.5" /> Report an issue
-        </button>
+  const doneBody = (
+    <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-10 text-center">
+      <div className="flex size-14 items-center justify-center rounded-full bg-green-500/15">
+        <CheckCircle2 className="size-7 text-green-400" />
       </div>
-    );
-    return shell(<>{panelHeader}{body}</>);
-  }
+      <div>
+        <p className="text-sm font-bold text-white">All tasks complete</p>
+        <p className="text-xs text-slate-400 leading-snug mt-1.5">
+          Thank you — feel free to keep exploring the tool.
+          Use the <span className="text-orange-400 font-semibold">Report an issue</span> button
+          if you spot anything worth noting.
+        </p>
+      </div>
+    </div>
+  );
 
-  // ── Active task ───────────────────────────────────────────────────────────
+  const activeBody = (() => {
+    if (panelView === 'report' || panelView === 'report_done') return reportBody;
+    if (allDone) return doneBody;
+    return taskBody;
+  })();
 
-  const activeBody = panelView === 'report' || panelView === 'report_done' ? reportBody : taskBody;
-  return shell(<>{panelHeader}{activeBody}</>, panelView === 'task' ? taskFooter : undefined);
+  const showFooter = panelView === 'task' && !allDone;
+  return shell(<>{panelHeader}{activeBody}</>, showFooter ? taskFooter : undefined);
 }
