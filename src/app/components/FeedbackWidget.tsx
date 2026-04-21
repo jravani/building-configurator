@@ -17,9 +17,18 @@ interface ScreenshotData {
   preview:  string;   // data-URI for <img> preview
 }
 
+export interface TaskTrigger {
+  taskId:      string;
+  taskTitle:   string;
+  prefillGoal: string;
+}
+
 interface FeedbackWidgetProps {
-  view:      string;
-  context?:  string;
+  view:                   string;
+  context?:               string;
+  taskTrigger?:           TaskTrigger | null;
+  onTaskTriggerConsumed?: () => void;
+  onSubmitted?:           () => void;
 }
 
 type Step = 'closed' | 'goal' | 'result' | 'rating' | 'screenshot' | 'done';
@@ -239,7 +248,13 @@ const RATING_OPTIONS = [
 
 // ─── Main widget ──────────────────────────────────────────────────────────────
 
-export function FeedbackWidget({ view, context = '' }: FeedbackWidgetProps) {
+export function FeedbackWidget({
+  view,
+  context = '',
+  taskTrigger,
+  onTaskTriggerConsumed,
+  onSubmitted,
+}: FeedbackWidgetProps) {
   const [step,        setStep]        = useState<Step>('closed');
   const [goal,        setGoal]        = useState('');
   const [result,      setResult]      = useState('');
@@ -249,11 +264,28 @@ export function FeedbackWidget({ view, context = '' }: FeedbackWidgetProps) {
   const [capturing,   setCapturing]   = useState(false);
   const [loading,     setLoading]     = useState(false);
   const [error,       setError]       = useState<string | null>(null);
+  // Active task context set when opened via TaskRunner
+  const [activeTask,  setActiveTask]  = useState<TaskTrigger | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // When TaskRunner fires a trigger, open and pre-fill.
+  useEffect(() => {
+    if (!taskTrigger) return;
+    setActiveTask(taskTrigger);
+    setGoal(taskTrigger.prefillGoal);
+    setResult('');
+    setRating(null);
+    setScreenshots([]);
+    setError(null);
+    setStep('goal');
+    onTaskTriggerConsumed?.();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskTrigger?.taskId]);
 
   const reset = () => {
     setStep('closed'); setGoal(''); setResult('');
-    setRating(null); setScreenshots([]); setCropPreview(null); setError(null);
+    setRating(null); setScreenshots([]); setCropPreview(null);
+    setError(null); setActiveTask(null);
   };
 
   const addScreenshot = (shot: ScreenshotData) =>
@@ -304,10 +336,13 @@ export function FeedbackWidget({ view, context = '' }: FeedbackWidgetProps) {
           view, context, url: window.location.href,
           timestamp: new Date().toISOString(),
           screenshots: screenshots.map(({ name, data, mimeType }) => ({ name, data, mimeType })),
+          taskId:    activeTask?.taskId    ?? null,
+          taskTitle: activeTask?.taskTitle ?? null,
         }),
       });
       if (!res.ok) throw new Error();
       setStep('done');
+      onSubmitted?.();
     } catch {
       setError('Could not send feedback. Please try again.');
     } finally {
@@ -474,7 +509,13 @@ export function FeedbackWidget({ view, context = '' }: FeedbackWidgetProps) {
 
             {step !== 'done' && (
               <div className="border-t border-slate-100 bg-slate-50 px-4 py-2">
-                <p className="text-[10px] text-slate-400 truncate">📍 {view}{context ? ` › ${context}` : ''}</p>
+                {activeTask ? (
+                  <p className="text-[10px] text-slate-400 truncate">
+                    📋 {activeTask.taskTitle} · 📍 {view}
+                  </p>
+                ) : (
+                  <p className="text-[10px] text-slate-400 truncate">📍 {view}{context ? ` › ${context}` : ''}</p>
+                )}
               </div>
             )}
           </div>

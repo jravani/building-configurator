@@ -1,6 +1,9 @@
-// Vercel serverless function — receives feedback from the in-app widget,
-// uploads screenshots to Vercel Blob storage, and creates a GitHub issue
-// with the screenshots embedded in the body.
+// Vercel serverless function — receives feedback from the in-app session panel,
+// uploads screenshots to Vercel Blob storage, and creates a GitHub issue.
+//
+// Two feedback types (set via feedbackType field):
+//   'issue'   — explicit UI bug report; labels: user-feedback, ux, difficulty, task-id
+//   'session' — task completion data;   labels: session-data, task-id
 //
 // Required environment variables (set in Vercel project settings):
 //   GITHUB_TOKEN       — PAT with Issues: read/write (or classic repo scope)
@@ -12,41 +15,65 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { put } from '@vercel/blob';
 
 interface ScreenshotPayload {
-  name:     string;   // original filename
-  data:     string;   // base64-encoded image content (no data-URI prefix)
-  mimeType: string;   // image/png | image/jpeg | image/webp
+  name:     string;
+  data:     string;   // base64-encoded, no data-URI prefix
+  mimeType: string;
+}
+
+interface SubtaskResult {
+  type:      'todo' | 'question' | 'yesno';
+  step:      string;
+  // todo
+  status?:   'done' | 'couldnt_finish' | 'pending';
+  comment?:  string;
+  // question
+  response?: string;
+  // yes/no
+  answer?:   'yes' | 'no' | null;
 }
 
 interface FeedbackPayload {
-  goal:        string;
-  result:      string;
-  rating:      number;
-  view:        string;
-  context:     string;
-  url:         string;
-  timestamp:   string;
-  screenshots: ScreenshotPayload[];
+  goal:           string;
+  result:         string;
+  rating:         number;
+  view:           string;
+  context:        string;
+  url:            string;
+  timestamp:      string;
+  screenshots:    ScreenshotPayload[];
+  taskId?:        string | null;
+  taskTitle?:     string | null;
+  feedbackType?:  'issue' | 'session';
+  subtaskResults?: SubtaskResult[];
 }
+
+// ─── Shared helpers ───────────────────────────────────────────────────────────
 
 function ratingMeta(r: number): { label: string; ghLabel: string } {
-  if (r <= 2) return { label: `${r} – Easy`,        ghLabel: 'feedback: easy'    };
-  if (r === 3) return { label: '3 – Moderate',       ghLabel: 'feedback: moderate'};
-  if (r === 4) return { label: '4 – Difficult',      ghLabel: 'feedback: hard'    };
-               return { label: '5 – Blocked/broken', ghLabel: 'feedback: blocked' };
+  if (r <= 2)  return { label: `${r} – Easy`,        ghLabel: 'feedback: easy'     };
+  if (r === 3) return { label: '3 – Moderate',        ghLabel: 'feedback: moderate' };
+  if (r === 4) return { label: '4 – Difficult',       ghLabel: 'feedback: hard'     };
+               return { label: '5 – Blocked/broken',  ghLabel: 'feedback: blocked'  };
 }
 
-/** Uploads a base64-encoded image to Vercel Blob and returns a public CDN URL. */
 async function uploadScreenshot(shot: ScreenshotPayload): Promise<string> {
   const binary   = Buffer.from(shot.data, 'base64');
   const safeName = shot.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const path     = `feedback-screenshots/${Date.now()}-${safeName}`;
-
-  const { url } = await put(path, binary, {
+  const { url }  = await put(`feedback-screenshots/${Date.now()}-${safeName}`, binary, {
     access:      'public',
     contentType: shot.mimeType || 'image/png',
   });
-
   return url;
+}
+
+// ─── Issue report (feedbackType === 'issue') ──────────────────────────────────
+
+function buildIssueTitle(p: FeedbackPayload): string {
+  const taskPart = p.taskTitle ? `[${p.taskTitle}] ` : '';
+  const prefix   = `[Feedback] ${taskPart}`;
+  const max      = 72 - prefix.length;
+  const goal     = p.goal.replace(/\n/g, ' ').trim();
+  return `${prefix}${goal.length > max ? goal.slice(0, max - 1) + '…' : goal}`;
 }
 
 function buildIssueBody(p: FeedbackPayload, screenshotUrls: string[]): string {
@@ -56,6 +83,7 @@ function buildIssueBody(p: FeedbackPayload, screenshotUrls: string[]): string {
     '',
     '| Field | Value |',
     '|---|---|',
+    ...(p.taskTitle ? [`| **Task** | ${p.taskTitle} |`] : []),
     `| **Screen** | ${p.view} |`,
     `| **Context** | ${p.context || '—'} |`,
     `| **Difficulty** | ${label} |`,
@@ -64,11 +92,8 @@ function buildIssueBody(p: FeedbackPayload, screenshotUrls: string[]): string {
     '',
     '---',
     '',
-    '### What were you trying to do?',
+    '### What went wrong?',
     p.goal,
-    '',
-    '### What happened / what did you expect?',
-    p.result,
   ];
 
   if (screenshotUrls.length > 0) {
@@ -78,21 +103,47 @@ function buildIssueBody(p: FeedbackPayload, screenshotUrls: string[]): string {
     });
   }
 
-  lines.push(
-    '',
-    '---',
-    '*Auto-generated from the in-app feedback widget.*',
-  );
-
+  lines.push('', '---', '*Reported via the in-app issue reporter.*');
   return lines.join('\n');
 }
 
-function buildIssueTitle(p: FeedbackPayload): string {
-  const prefix = '[Feedback] ';
-  const max    = 72 - prefix.length;
-  const goal   = p.goal.replace(/\n/g, ' ').trim();
-  return `${prefix}${goal.length > max ? goal.slice(0, max - 1) + '…' : goal}`;
+// ─── Session observation (feedbackType === 'session') ─────────────────────────
+
+function buildSessionTitle(p: FeedbackPayload): string {
+  const goal = p.goal.replace(/\n/g, ' ').trim();
+  const max  = 65;
+  return `[Session] ${goal.length > max ? goal.slice(0, max - 1) + '…' : goal}`;
 }
+
+function buildSessionBody(p: FeedbackPayload): string {
+  const statusIcon = (s: SubtaskResult['status']) =>
+    s === 'done' ? '✅ Done' : s === 'couldnt_finish' ? '❌ Couldn\'t finish' : '— Skipped';
+
+  const lines = [
+    '## Session Observation',
+    '',
+    '| Field | Value |',
+    '|---|---|',
+    `| **Task** | ${p.taskTitle || p.goal} |`,
+    `| **Screen** | ${p.view} |`,
+    `| **Submitted** | ${p.timestamp} |`,
+    `| **URL** | ${p.url} |`,
+  ];
+
+  if (p.subtaskResults && p.subtaskResults.length > 0) {
+    const done    = p.subtaskResults.filter(s => s.status === 'done').length;
+    const total   = p.subtaskResults.length;
+    lines.push('', '---', '', `### Steps (${done} / ${total} completed)`, '', '| Step | Status | Comment |', '|---|---|---|');
+    for (const r of p.subtaskResults) {
+      lines.push(`| ${r.step} | ${statusIcon(r.status)} | ${r.comment || '—'} |`);
+    }
+  }
+
+  lines.push('', '---', '*Auto-recorded from the in-app session panel.*');
+  return lines.join('\n');
+}
+
+// ─── Handler ──────────────────────────────────────────────────────────────────
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -108,21 +159,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'goal and result are required' });
   }
 
-  // ── Upload screenshots to Vercel Blob ─────────────────────────────────────
+  const isSession = payload.feedbackType === 'session';
+
+  // ── Upload screenshots (issue reports only) ───────────────────────────────
   const screenshotUrls: string[] = [];
-  for (const shot of payload.screenshots ?? []) {
-    if (!shot?.data) continue;
-    try {
-      screenshotUrls.push(await uploadScreenshot(shot));
-    } catch (e) {
-      console.error('Screenshot upload error:', e);
-      // Non-fatal — issue is still created without this screenshot
+  if (!isSession) {
+    for (const shot of payload.screenshots ?? []) {
+      if (!shot?.data) continue;
+      try {
+        screenshotUrls.push(await uploadScreenshot(shot));
+      } catch (e) {
+        console.error('Screenshot upload error:', e);
+      }
     }
   }
 
-  // ── Create GitHub issue ───────────────────────────────────────────────────
-  const { ghLabel } = ratingMeta(payload.rating ?? 3);
+  // ── Build issue content ───────────────────────────────────────────────────
+  const title  = isSession ? buildSessionTitle(payload)  : buildIssueTitle(payload);
+  const body   = isSession ? buildSessionBody(payload)   : buildIssueBody(payload, screenshotUrls);
+  const labels = isSession
+    ? ['session-data', ...(payload.taskId ? [payload.taskId] : [])]
+    : ['user-feedback', 'ux', ratingMeta(payload.rating ?? 3).ghLabel, ...(payload.taskId ? [payload.taskId] : [])];
 
+  // ── Create GitHub issue ───────────────────────────────────────────────────
   const ghRes = await fetch(
     `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/issues`,
     {
@@ -133,11 +192,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         'Content-Type':         'application/json',
         'X-GitHub-Api-Version': '2022-11-28',
       },
-      body: JSON.stringify({
-        title:  buildIssueTitle(payload),
-        body:   buildIssueBody(payload, screenshotUrls),
-        labels: ['user-feedback', 'ux', ghLabel],
-      }),
+      body: JSON.stringify({ title, body, labels }),
     },
   );
 
