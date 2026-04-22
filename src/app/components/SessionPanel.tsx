@@ -242,7 +242,7 @@ export function SessionPanel({
     } catch { /* non-fatal */ }
   };
 
-  const handleNext = async () => { await submitSession(); onNextTask(); };
+  const handleNext = () => { submitSession(); onNextTask(); };
 
   // ── Screenshot capture ────────────────────────────────────────────────────
 
