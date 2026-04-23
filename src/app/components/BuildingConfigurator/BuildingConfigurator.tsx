@@ -31,6 +31,7 @@ import {
 import {
   getThermalRating,
   buildSnapshotRows,
+  type SnapshotBaseline,
 } from './shared/snapshotUtils';
 import type { ElementGroupKey } from './shared/elementListUtils';
 import { BuildingSnapshotAside } from './overview/BuildingSnapshotAside';
@@ -262,6 +263,16 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Baseline for "Modified" comparisons — updated whenever a new building is loaded.
+  // This records the state as it was when first loaded so the badges reflect user
+  // edits only, not differences from the static DEFAULT_* constants.
+  const baselineRef = useRef<SnapshotBaseline>({
+    general:      initialGeneral,
+    elements:     initialElements,
+    totalArea:    Object.values(initialElements).reduce((s, e) => s + e.area, 0),
+    elementCount: Object.keys(initialElements).length,
+  });
+
   // Sync all model-derived state whenever buildingData prop changes (e.g. different building
   // selected, or the source JSON is updated during development).
   useEffect(() => {
@@ -289,6 +300,12 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
       buildingData.thematic.thermalSummary ?? buildingData.thermalSummary ?? null,
     );
 
+    baselineRef.current = {
+      general:      nextGeneral,
+      elements:     nextElements,
+      totalArea:    Object.values(nextElements).reduce((s, e) => s + e.area, 0),
+      elementCount: Object.keys(nextElements).length,
+    };
     setElements(nextElements);
     setGeneralRaw(nextGeneral);
     setRoofConfig(DEFAULT_ROOF_CONFIG);
@@ -325,21 +342,6 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
       return { ...prev, [id]: { ...current, label } };
     });
 
-  const enableCustomMode = (id: string) => {
-    setElements((prev) => {
-      const current = prev[id];
-      if (!current || isElementEditable(current)) return prev;
-      return { ...prev, [id]: { ...current, customMode: true } };
-    });
-    // Also switch PV geometry to manual so tilt/azimuth inputs appear in the PV tab.
-    setSurfacePvConfigs((prev) => {
-      const el = elements[id];
-      if (!el) return prev;
-      const existing = prev[id] ?? createSurfacePvConfig(el);
-      return { ...prev, [id]: { ...existing, geometryMode: 'manual' } };
-    });
-  };
-
   const deleteSurface = (id: string) => {
     const deletedType = elements[id]?.type as ElementGroupKey | undefined;
     setElements((prev) => {
@@ -372,14 +374,6 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
       const idx = VIEW_ORDER.findIndex((v) => v.frontWallId === group.face);
       if (idx !== -1) setVizViewIndex(idx);
     }
-  };
-
-  const handleSelectElement = (id: string) => {
-    setSelectedId(id);
-    setSurfaceEditorTab('properties');
-    setPanelView('surface-group');
-    setActiveGroupType((elements[id]?.type as ElementGroupKey) ?? null);
-    setWorkspaceView('configure');
   };
 
   const handleBuildingSelect = () => {
@@ -645,7 +639,7 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
     ? Object.values(elements).reduce((sum, e) => sum + e.uValue * e.area, 0) / totalArea
     : 0;
   const thermalRating = getThermalRating(avgUValue);
-  const snapshotRows  = buildSnapshotRows(general, elements, totalArea);
+  const snapshotRows  = buildSnapshotRows(general, elements, totalArea, baselineRef.current);
   const pvInstalledSurfaces = useMemo(() => (
     Object.values(elements)
       .filter((element) => surfacePvConfigs[element.id]?.installed)
@@ -738,7 +732,6 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
                 avgUValue={avgUValue}
                 installedTechIds={installedTechIds}
                 pvSummary={pvSummary}
-                onUpdateParam={setGen}
                 onToggleTech={handleTechToggle}
                 onOpenTech={handleTechnologyOpen}
                 mode={mode}
@@ -747,15 +740,11 @@ export function BuildingConfigurator({ onClose, buildingData }: BuildingConfigur
                 uploadError={uploadError}
                 onClearError={() => setUploadError(null)}
                 elements={elements}
-                selectedId={selectedId}
-                onSelectElement={handleSelectElement}
-                onUpdateElement={updateElement}
-                onEnableCustomMode={enableCustomMode}
+                baselineElements={baselineRef.current.elements}
                 roofConfig={roofConfig}
                 isActive={workspaceView === 'overview'}
                 buildingId={buildingLabel}
                 initialTimeseries={thematicData?.timeseries ?? buildingData?.timeseries ?? null}
-                onSwitchToConfigure={handleSelectElement}
                 mode={mode}
                 installedTechIds={installedTechIds}
                 pvSummary={pvSummary}

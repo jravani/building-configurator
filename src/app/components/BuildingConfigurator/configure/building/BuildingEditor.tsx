@@ -533,7 +533,7 @@ const SECTION_COLORS: Record<SectionKey, string> = {
 };
 
 const SECTION_LABELS: Record<SectionKey, string> = {
-  identity:    'Building Type & Size',
+  identity:    'Basic info',
   conditions:  'Site & Surroundings',
   ventilation: 'Air & Ventilation',
   loads:       'Appliances & Occupancy',
